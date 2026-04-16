@@ -5,16 +5,6 @@
 
 ![Status](https://img.shields.io/badge/status-live-brightgreen) ![AWS](https://img.shields.io/badge/cloud-AWS-FF9900?logo=amazonaws) ![Docker](https://img.shields.io/badge/container-Docker-2496ED?logo=docker) ![Terraform](https://img.shields.io/badge/iac-Terraform-7B42BC?logo=terraform) ![Jenkins](https://img.shields.io/badge/ci/cd-Jenkins-D24939?logo=jenkins) ![Node.js](https://img.shields.io/badge/runtime-Node.js-339933?logo=nodedotjs)
 
----
-
-## 🌐 Live
-
-| Resource | URL |
-|---|---|
-| **App** | http://my-app-alb-2033694162.eu-north-1.elb.amazonaws.com |
-| **Jenkins** | http://51.20.93.73:8080 |
-
----
 
 ## 📌 What This Project Is
 
