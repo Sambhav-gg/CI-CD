@@ -3,9 +3,9 @@ pipeline {
 
     environment {
         AWS_REGION      = 'eu-north-1'
-        ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com'
+        ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com/my-app'
         ECR_REPO        = 'my-app'
-        APP_EC2_IP      = '10.0.1.93'
+        APP_EC2_IP      = '10.0.1.68'
         ALB_DNS         = 'my-app-alb-975584628.eu-north-1.elb.amazonaws.com'
         IMAGE_TAG       = "${env.GIT_COMMIT?.take(7) ?: 'latest'}"
         FULL_IMAGE      = "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
@@ -30,7 +30,7 @@ pipeline {
         // ── 2. BUILD & TEST ──────────────────────────────────────────────────
         stage('Build & Test') {
             steps {
-                dir('my-app') {
+                dir('.') {
                     sh 'npm ci --prefer-offline'
                     sh '''
                         node -e "
@@ -78,7 +78,7 @@ pipeline {
             steps {
                 sshagent(credentials: ['ec2-ssh-key']) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ec2-user@${APP_EC2_IP} '
+                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@${APP_EC2_IP} '
                             set -e
 
                             # Authenticate with ECR
@@ -156,7 +156,7 @@ pipeline {
             // Attempt rollback to previous :latest before this build pushed a new one
             sshagent(credentials: ['ec2-ssh-key']) {
                 sh """
-                    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ec2-user@${APP_EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@${APP_EC2_IP} '
                         PREV=\$(docker images ${ECR_REGISTRY}/${ECR_REPO} \
                                     --format "{{.Tag}} {{.CreatedAt}}" \
                                     | sort -k2 -r | awk "NR==2{print \$1}")
