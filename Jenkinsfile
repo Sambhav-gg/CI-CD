@@ -55,7 +55,7 @@ pipeline {
         // ── 3. DOCKER BUILD ──────────────────────────────────────────────────
         stage('Docker Build') {
             steps {
-                dir('my-app') {
+                dir('.') {
                     sh "docker build -t ${FULL_IMAGE} -t ${ECR_REGISTRY}/${ECR_REPO}:latest ."
                 }
             }
