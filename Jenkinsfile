@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         AWS_REGION      = 'eu-north-1'
-        ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com/my-app'
+        ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com'
         ECR_REPO        = 'my-app'
         APP_EC2_IP      = '10.0.1.68'
         ALB_DNS         = 'my-app-alb-975584628.eu-north-1.elb.amazonaws.com'
