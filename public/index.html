@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Status</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    min-height: 100vh;
+  }
+
+  header {
+    border-bottom: 1px solid #1e2433;
+    padding: 20px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+    background: #22c55e;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+
+  .overall-badge {
+    background: #052e16;
+    color: #22c55e;
+    border: 1px solid #166534;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 20px;
+  }
+
+  .hero {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+
+  .hero h1 {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .hero p {
+    color: #64748b;
+    font-size: 15px;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #475569;
+    margin-bottom: 12px;
+  }
+
+  .services-grid {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 40px;
+  }
+
+  .service-row {
+    background: #161b27;
+    border: 1px solid #1e2433;
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: border-color 0.2s;
+  }
+
+  .service-row:hover {
+    border-color: #2d3748;
+  }
+
+  .service-name {
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #22c55e;
+  }
+
+  .status-pill .indicator {
+    width: 7px;
+    height: 7px;
+    background: #22c55e;
+    border-radius: 50%;
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 40px;
+  }
+
+  .metric-card {
+    background: #161b27;
+    border: 1px solid #1e2433;
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .metric-label {
+    font-size: 12px;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .metric-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #f1f5f9;
+  }
+
+  .metric-sub {
+    font-size: 12px;
+    color: #475569;
+    margin-top: 4px;
+  }
+
+  .meta-bar {
+    background: #161b27;
+    border: 1px solid #1e2433;
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: flex;
+    gap: 32px;
+    font-size: 13px;
+    color: #475569;
+    flex-wrap: wrap;
+  }
+
+  .meta-bar span { color: #94a3b8; }
+
+  footer {
+    text-align: center;
+    padding: 32px;
+    font-size: 13px;
+    color: #334155;
+    border-top: 1px solid #1e2433;
+    margin-top: 40px;
+  }
+
+  .loading { opacity: 0.4; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="dot"></div>
+    StatusBoard
+  </div>
+  <div class="overall-badge">All Systems Operational</div>
+</header>
+
+<main>
+  <div class="hero">
+    <h1>System Status</h1>
+    <p>Real-time status of all infrastructure components</p>
+  </div>
+
+  <div class="section-title">Services</div>
+  <div class="services-grid" id="services">
+    <div class="loading">Loading...</div>
+  </div>
+
+  <div class="section-title">System Metrics</div>
+  <div class="metrics-grid" id="metrics">
+    <div class="loading">Loading...</div>
+  </div>
+
+  <div class="section-title">Deployment Info</div>
+  <div class="meta-bar" id="meta">
+    <div class="loading">Loading...</div>
+  </div>
+</main>
+
+<footer>
+  Powered by Node.js · Docker · AWS EC2 · ALB · Auto Scaling · CloudWatch
+</footer>
+
+<script>
+async function fetchStatus() {
+  try {
+    const res  = await fetch('/api/status');
+    const data = await res.json();
+    renderServices(data.services);
+    renderMetrics(data.system);
+    renderMeta(data.meta);
+  } catch (e) {
+    console.error('Failed to fetch status', e);
+  }
+}
+
+function renderServices(services) {
+  document.getElementById('services').innerHTML = services.map(s => `
+    <div class="service-row">
+      <span class="service-name">${s.name}</span>
+      <span class="status-pill">
+        <span class="indicator"></span>
+        Operational
+      </span>
+    </div>
+  `).join('');
+}
+
+function renderMetrics(sys) {
+  const memPct = Math.round((sys.memory_used_mb / sys.memory_total_mb) * 100);
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric-card">
+      <div class="metric-label">Uptime</div>
+      <div class="metric-value" style="font-size:16px">${sys.uptime_human}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Memory</div>
+      <div class="metric-value">${memPct}%</div>
+      <div class="metric-sub">${sys.memory_used_mb} / ${sys.memory_total_mb} MB</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">CPU Cores</div>
+      <div class="metric-value">${sys.cpu_cores}</div>
+      <div class="metric-sub">${sys.platform}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Node.js</div>
+      <div class="metric-value" style="font-size:16px">${sys.node_version}</div>
+      <div class="metric-sub">${sys.environment}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Hostname</div>
+      <div class="metric-value" style="font-size:13px;margin-top:6px">${sys.hostname}</div>
+    </div>
+  `;
+}
+
+function renderMeta(meta) {
+  document.getElementById('meta').innerHTML = `
+    <div>Version <span>${meta.version}</span></div>
+    <div>Region <span>${meta.region}</span></div>
+    <div>Deployed <span>${new Date(meta.deployed_at).toLocaleString()}</span></div>
+  `;
+}
+
+fetchStatus();
+setInterval(fetchStatus, 10000);
+</script>
+
+</body>
+</html>
