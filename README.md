@@ -11,7 +11,7 @@
 
 | Resource | URL |
 |---|---|
-| **App** | http://my-app-alb-975584628.eu-north-1.elb.amazonaws.com |
+| **App** | http://my-app-alb-2033694162.eu-north-1.elb.amazonaws.com |
 | **Jenkins** | http://51.20.93.73:8080 |
 
 ---
