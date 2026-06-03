@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Production CI/CD — Sambhav Garg</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+
+:root{
+  --bg:       #060810;
+  --bg1:      #0a0d16;
+  --bg2:      #0e1220;
+  --bg3:      #131826;
+  --border:   rgba(255,255,255,0.06);
+  --border2:  rgba(255,255,255,0.12);
+  --aws:      #FF9900;
+  --jenkins:  #D24939;
+  --docker:   #2496ED;
+  --green:    #00FF87;
+  --teal:     #00D4AA;
+  --purple:   #B57BFF;
+  --pink:     #FF6B9D;
+  --yellow:   #FFD166;
+  --red:      #FF4757;
+  --slate:    #8892A4;
+  --white:    #EEF2FF;
+  --glow-green: rgba(0,255,135,0.15);
+  --glow-aws:   rgba(255,153,0,0.15);
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  font-family: 'Syne', sans-serif;
+  color: var(--white);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* NOISE OVERLAY */
+body::before {
+  content:'';
+  position:fixed;
+  inset:0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events:none;
+  z-index:0;
+  opacity:0.4;
+}
+
+/* GRID BG */
+body::after {
+  content:'';
+  position:fixed;
+  inset:0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events:none;
+  z-index:0;
+}
+
+/* HEADER */
+.header {
+  position: relative;
+  z-index: 10;
+  padding: 52px 48px 40px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.header-left {}
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px; color: var(--green);
+  letter-spacing: 0.12em; text-transform: uppercase;
+  margin-bottom: 16px;
+  padding: 5px 12px;
+  background: rgba(0,255,135,0.08);
+  border: 1px solid rgba(0,255,135,0.2);
+  border-radius: 4px;
+}
+.eyebrow::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--green); animation: blink 2s ease infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+h1 {
+  font-size: clamp(32px, 5vw, 54px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--white);
+}
+h1 em { font-style:normal; color: var(--aws); }
+.subtitle {
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--slate);
+  font-weight: 400;
+  font-family: 'Space Mono', monospace;
+  letter-spacing: 0.02em;
+}
+
+.header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Space Mono', monospace; font-size: 10px;
+  padding: 5px 11px; border-radius: 4px;
+  font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.badge-aws    { background: rgba(255,153,0,0.1); border: 1px solid rgba(255,153,0,0.3); color: var(--aws); }
+.badge-docker { background: rgba(36,150,237,0.1); border: 1px solid rgba(36,150,237,0.3); color: var(--docker); }
+.badge-tf     { background: rgba(181,123,255,0.1); border: 1px solid rgba(181,123,255,0.3); color: var(--purple); }
+.badge-live   { background: rgba(0,255,135,0.1); border: 1px solid rgba(0,255,135,0.3); color: var(--green); }
+.badge-live::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--green); animation:blink 1.5s ease infinite; }
+
+/* CONTROLS */
+.controls-wrap {
+  position: relative; z-index: 10;
+  padding: 24px 48px;
+  display: flex; align-items: center; gap: 14px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.ctrl-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 24px; border-radius: 5px;
+  font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; border: none;
+  transition: all 0.15s ease;
+}
+.ctrl-btn:hover { transform: translateY(-2px); }
+.ctrl-btn:active { transform: scale(0.97); }
+.btn-play  { background: var(--green); color: #000; }
+.btn-step  { background: transparent; border: 1px solid var(--border2); color: var(--white); }
+.btn-reset { background: transparent; border: 1px solid rgba(255,71,87,0.3); color: var(--red); }
+.speed-grp {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'Space Mono', monospace; font-size: 11px; color: var(--slate);
+  margin-left: auto;
+}
+input[type=range] { accent-color: var(--aws); width: 80px; }
+#speedVal { color: var(--aws); min-width: 28px; }
+
+/* PROGRESS */
+.progress-section {
+  position: relative; z-index: 10;
+  padding: 20px 48px;
+}
+.progress-track {
+  height: 2px; background: rgba(255,255,255,0.06);
+  border-radius: 99px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--aws));
+  border-radius: 99px;
+  width: 0%;
+  transition: width 0.5s cubic-bezier(.4,0,.2,1);
+}
+.progress-info {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 10px;
+}
+.step-counter {
+  font-family: 'Space Mono', monospace; font-size: 11px; color: var(--slate);
+}
+.step-label {
+  font-family: 'Space Mono', monospace; font-size: 12px; color: var(--green);
+  min-height: 18px; transition: color 0.3s;
+  text-align: right; max-width: 60%;
+}
+
+/* STEP DOTS */
+.dots-row {
+  display: flex; justify-content: center; gap: 5px;
+  padding: 0 48px 20px;
+  position: relative; z-index: 10;
+}
+.sdot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  transition: background 0.3s, transform 0.3s;
+  cursor: pointer;
+}
+.sdot.done    { background: rgba(0,255,135,0.5); }
+.sdot.current { background: var(--aws); transform: scale(1.6); }
+
+/* MAIN DIAGRAM AREA */
+.diagram-wrap {
+  position: relative; z-index: 10;
+  padding: 40px 48px 20px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+
+/* SWIMLANE */
+.lane {
+  display: flex; align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  background: rgba(255,255,255,0.015);
+  overflow: visible;
+  transition: border-color 0.3s;
+}
+.lane.lane-active { border-color: rgba(255,255,255,0.1); }
+
+.lane-label {
+  width: 100px; min-width: 100px;
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0 16px 0 12px;
+  font-family: 'Space Mono', monospace;
+  font-size: 8px; font-weight: 700; letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.15);
+  border-right: 1px solid var(--border);
+  writing-mode: horizontal-lr;
+}
+.lane-content {
+  flex: 1;
+  display: flex; align-items: center;
+  padding: 22px 24px; gap: 0;
+  flex-wrap: nowrap; overflow-x: auto;
+}
+
+/* NODE */
+.node {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 8px; flex-shrink: 0;
+  opacity: 0; transform: translateY(12px) scale(0.88);
+  transition: opacity 0.5s cubic-bezier(.34,1.56,.64,1),
+              transform 0.5s cubic-bezier(.34,1.56,.64,1);
+}
+.node.visible { opacity:1; transform:translateY(0) scale(1); }
+.node.dim     { opacity:0.15; }
+
+.icon-box {
+  width: 66px; height: 66px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid transparent;
+  transition: box-shadow 0.4s, border-color 0.3s;
+  position: relative; flex-shrink: 0;
+}
+.icon-box svg { width: 30px; height: 30px; }
+
+.node.visible .icon-box.glow-aws    { box-shadow: 0 0 22px var(--glow-aws); border-color: rgba(255,153,0,0.35); animation: pulseBox 2.5s ease infinite; --pc: rgba(255,153,0,0.15); }
+.node.visible .icon-box.glow-green  { box-shadow: 0 0 22px rgba(0,255,135,0.2); border-color: rgba(0,255,135,0.35); animation: pulseBox 2.5s ease infinite; --pc: rgba(0,255,135,0.12); }
+.node.visible .icon-box.glow-docker { box-shadow: 0 0 22px rgba(36,150,237,0.2); border-color: rgba(36,150,237,0.35); }
+.node.visible .icon-box.glow-purple { box-shadow: 0 0 22px rgba(181,123,255,0.2); border-color: rgba(181,123,255,0.35); }
+.node.visible .icon-box.glow-pink   { box-shadow: 0 0 22px rgba(255,107,157,0.2); border-color: rgba(255,107,157,0.35); }
+.node.visible .icon-box.glow-yellow { box-shadow: 0 0 22px rgba(255,209,102,0.2); border-color: rgba(255,209,102,0.35); }
+.node.visible .icon-box.glow-red    { box-shadow: 0 0 22px rgba(255,71,87,0.2); border-color: rgba(255,71,87,0.35); }
+.node.visible .icon-box.glow-teal   { box-shadow: 0 0 22px rgba(0,212,170,0.2); border-color: rgba(0,212,170,0.35); }
+
+@keyframes pulseBox {
+  0%,100% { box-shadow: 0 0 22px var(--pc, rgba(255,153,0,0.15)); }
+  50%     { box-shadow: 0 0 36px var(--pc, rgba(255,153,0,0.25)); }
+}
+
+.bg-aws    { background: rgba(255,153,0,0.08); }
+.bg-docker { background: rgba(36,150,237,0.08); }
+.bg-jenkins{ background: rgba(210,73,57,0.08); }
+.bg-green  { background: rgba(0,255,135,0.07); }
+.bg-teal   { background: rgba(0,212,170,0.07); }
+.bg-purple { background: rgba(181,123,255,0.07); }
+.bg-pink   { background: rgba(255,107,157,0.07); }
+.bg-yellow { background: rgba(255,209,102,0.07); }
+.bg-red    { background: rgba(255,71,87,0.07); }
+.bg-gray   { background: rgba(136,146,164,0.07); }
+
+.node-name {
+  font-size: 11px; font-weight: 700;
+  text-align: center; letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.node-desc {
+  font-family: 'Space Mono', monospace;
+  font-size: 8.5px; color: var(--slate);
+  text-align: center; line-height: 1.55; max-width: 88px;
+}
+.c-aws    { color: var(--aws); }
+.c-docker { color: var(--docker); }
+.c-jenkins{ color: #e87f70; }
+.c-green  { color: var(--green); }
+.c-teal   { color: var(--teal); }
+.c-purple { color: var(--purple); }
+.c-pink   { color: var(--pink); }
+.c-yellow { color: var(--yellow); }
+.c-red    { color: var(--red); }
+.c-gray   { color: var(--slate); }
+
+/* ARROWS */
+.arr {
+  display: flex; align-items: center;
+  padding: 0 6px; flex-shrink: 0; position: relative;
+  opacity: 0; transition: opacity 0.5s ease;
+}
+.arr.visible { opacity: 1; }
+.arr-line {
+  height: 1.5px; width: 50px; border-radius: 1px;
+  position: relative;
+}
+.arr-line::after {
+  content:''; position:absolute; right:-1px; top:-4.5px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid currentColor;
+}
+.arr-lbl {
+  position: absolute; top: -15px; left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Space Mono', monospace; font-size: 8px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  white-space: nowrap; color: var(--slate); opacity:0.6;
+}
+.arr-dot {
+  position:absolute; top:50%; left:0; width:5px; height:5px;
+  border-radius:50%; transform:translateY(-50%);
+  animation: flowD 1.3s linear infinite;
+  opacity:0;
+}
+.arr.visible .arr-dot { opacity:1; }
+@keyframes flowD {
+  0%   { left:0; opacity:0; }
+  10%  { opacity:1; }
+  90%  { opacity:1; }
+  100% { left:calc(100% - 5px); opacity:0; }
+}
+
+.arr-aws    { background: var(--aws); color: var(--aws); }
+.arr-green  { background: var(--green); color: var(--green); }
+.arr-docker { background: var(--docker); color: var(--docker); }
+.arr-purple { background: var(--purple); color: var(--purple); }
+.arr-pink   { background: var(--pink); color: var(--pink); }
+.arr-teal   { background: var(--teal); color: var(--teal); }
+
+/* JENKINS PIPELINE COMPOUND */
+.pipeline-wrap {
+  display: flex; align-items: center; gap: 0;
+  background: rgba(210,73,57,0.04);
+  border: 1px solid rgba(210,73,57,0.18);
+  border-radius: 12px; padding: 16px 18px;
+  position: relative;
+  opacity: 0; transform: scale(0.95);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.pipeline-wrap.visible { opacity:1; transform: scale(1); }
+.pipeline-wrap::before {
+  content: 'JENKINS PIPELINE';
+  position: absolute; top:-9px; left:14px;
+  font-family: 'Space Mono', monospace;
+  font-size: 8px; font-weight:700; letter-spacing:0.16em;
+  color: rgba(210,73,57,0.6); text-transform:uppercase;
+  background: var(--bg); padding: 0 8px;
+}
+.pipe-stage {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  opacity: 0; transform: translateX(-8px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.pipe-stage.visible { opacity:1; transform: translateX(0); }
+.pipe-pill {
+  background: rgba(210,73,57,0.1); border: 1px solid rgba(210,73,57,0.28);
+  border-radius: 6px; padding: 8px 12px;
+  font-family: 'Space Mono', monospace; font-size: 9.5px; font-weight:700;
+  color: #e87f70; letter-spacing: 0.04em; white-space: nowrap; text-align:center;
+  line-height: 1.4;
+}
+.pipe-tick { font-size:11px; color:var(--green); opacity:0; transition: opacity 0.3s; }
+.pipe-stage.done .pipe-tick { opacity:1; }
+.pipe-arr {
+  width: 16px; height: 1.5px;
+  background: rgba(210,73,57,0.3); flex-shrink:0; align-self:center; margin:0 4px;
+  position:relative; opacity:0; transition:opacity 0.3s;
+}
+.pipe-arr.visible { opacity:1; }
+.pipe-arr::after {
+  content:''; position:absolute; right:-1px; top:-4px;
+  border-top:5px solid transparent; border-bottom:5px solid transparent;
+  border-left:7px solid rgba(210,73,57,0.4);
+}
+
+/* ASG BOX */
+.asg-wrap {
+  background: rgba(0,255,135,0.04);
+  border: 1px dashed rgba(0,255,135,0.2);
+  border-radius: 12px; padding: 14px 16px;
+  position: relative;
+  opacity: 0; transform: scale(0.95);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.asg-wrap.visible { opacity:1; transform:scale(1); }
+.asg-wrap::before {
+  content: 'AUTO SCALING GROUP  ·  min:1 / max:3';
+  position:absolute; top:-9px; left:14px;
+  font-family:'Space Mono',monospace; font-size:8px; font-weight:700;
+  letter-spacing:0.12em; text-transform:uppercase;
+  color: rgba(0,255,135,0.45); background:var(--bg); padding:0 8px;
+}
+.inst-row {
+  display:flex; align-items:center; gap:10px;
+  background:rgba(0,255,135,0.05); border:1px solid rgba(0,255,135,0.14);
+  border-radius:8px; padding:8px 14px;
+  opacity:0; transform:translateX(10px);
+  transition:opacity 0.4s ease, transform 0.4s ease;
+}
+.inst-row.visible { opacity:1; transform:translateX(0); }
+.inst-ico { font-size:17px; }
+.inst-info { flex:1; }
+.inst-name { font-size:10px; font-weight:700; color: var(--green); letter-spacing:0.04em; }
+.inst-meta { font-family:'Space Mono',monospace; font-size:8.5px; color:rgba(0,255,135,0.4); margin-top:2px; }
+.inst-badge {
+  background:rgba(0,255,135,0.12); border:1px solid rgba(0,255,135,0.28);
+  border-radius:99px; padding:2px 9px;
+  font-family:'Space Mono',monospace; font-size:9px; font-weight:700;
+  color: var(--green); letter-spacing:0.06em; white-space:nowrap;
+}
+
+/* MONITOR BOX */
+.monitor-wrap {
+  background: rgba(255,107,157,0.04);
+  border: 1px dashed rgba(255,107,157,0.2);
+  border-radius: 12px; padding: 14px 18px;
+  position: relative;
+  opacity:0; transform:scale(0.95);
+  transition:opacity 0.5s ease, transform 0.5s ease;
+  display:flex; align-items:center; gap:0;
+}
+.monitor-wrap.visible { opacity:1; transform:scale(1); }
+.monitor-wrap::before {
+  content:'MONITORING & ALERTING';
+  position:absolute; top:-9px; left:14px;
+  font-family:'Space Mono',monospace; font-size:8px; font-weight:700;
+  letter-spacing:0.14em; text-transform:uppercase;
+  color:rgba(255,107,157,0.45); background:var(--bg); padding:0 8px;
+}
+
+/* TERMINAL */
+.terminal-section {
+  position:relative; z-index:10;
+  padding: 8px 48px 48px;
+}
+.terminal {
+  border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border2);
+  opacity:0; transform: translateY(16px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.terminal.visible { opacity:1; transform:translateY(0); }
+.term-bar {
+  background: #131826;
+  padding: 12px 18px; display:flex; align-items:center; gap:8px;
+  border-bottom: 1px solid var(--border);
+}
+.tdot { width:11px; height:11px; border-radius:50%; }
+.term-title {
+  font-family:'Space Mono',monospace; font-size:11px; color:var(--slate);
+  margin-left:6px; flex:1;
+}
+.term-status {
+  font-family:'Space Mono',monospace; font-size:10px; color: var(--green);
+  background: rgba(0,255,135,0.08); padding:2px 10px; border-radius:4px;
+}
+.term-body {
+  background:#07090f;
+  padding: 18px 22px; min-height:140px; max-height:250px; overflow-y:auto;
+  font-family:'Space Mono',monospace; font-size:12.5px; line-height:2;
+}
+.tl { opacity:0; transform:translateY(3px); transition:opacity 0.25s, transform 0.25s; }
+.tl.show { opacity:1; transform:translateY(0); }
+.tl-g { color:var(--green); }
+.tl-a { color:var(--aws); }
+.tl-d { color:var(--docker); }
+.tl-s { color:var(--slate); }
+.tl-w { color:#fff; font-weight:700; }
+.tl-p { color:var(--purple); }
+.tl-y { color:var(--yellow); }
+.tl-pk{ color:var(--pink); }
+.cursor { display:inline-block; width:8px; height:15px; background:var(--green); vertical-align:middle; margin-left:2px; animation: blinkC 1s step-end infinite; }
+@keyframes blinkC { 50%{opacity:0} }
+
+/* BOTTOM STATS */
+.stats-row {
+  position:relative; z-index:10;
+  display:flex; gap:1px;
+  border-top: 1px solid var(--border);
+  margin-top:8px;
+}
+.stat {
+  flex:1; padding: 24px 28px;
+  border-right: 1px solid var(--border);
+}
+.stat:last-child { border-right:none; }
+.stat-val {
+  font-size:26px; font-weight:800; letter-spacing:-0.04em;
+  line-height:1;
+}
+.stat-key {
+  font-family:'Space Mono',monospace; font-size:9px;
+  color:var(--slate); letter-spacing:0.12em; text-transform:uppercase;
+  margin-top:6px;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width:4px; height:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:99px; }
+
+@media(max-width:900px){
+  .header { padding:32px 24px 28px; flex-direction:column; }
+  .controls-wrap, .progress-section, .dots-row, .diagram-wrap, .terminal-section, .stats-row { padding-left:24px; padding-right:24px; }
+  .lane-label { width:64px; min-width:64px; font-size:7px; }
+  h1 { font-size:28px; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-left">
+    <div class="eyebrow">Production Infrastructure · eu-north-1</div>
+    <h1>CI/CD Pipeline<br>on <em>AWS</em></h1>
+    <div class="subtitle">github.com/Sambhav-gg/my-app · B.Tech CSE · Bennett University</div>
+  </div>
+  <div class="header-right">
+    <span class="badge badge-live">● Live</span>
+    <span class="badge badge-aws">AWS EC2 + ECR + ALB + ASG</span>
+    <span class="badge badge-docker">Docker Multi-Stage</span>
+    <span class="badge badge-tf">Terraform IaC</span>
+  </div>
+</header>
+
+<!-- CONTROLS -->
+<div class="controls-wrap">
+  <button class="ctrl-btn btn-play" id="playBtn" onclick="playAll()">▶ Play</button>
+  <button class="ctrl-btn btn-step" onclick="stepNext()">→ Step</button>
+  <button class="ctrl-btn btn-reset" onclick="resetAll()">↺ Reset</button>
+  <div class="speed-grp">
+    Speed
+    <input type="range" id="speedRange" min="400" max="2200" value="1000" step="100">
+    <span id="speedVal">1x</span>
+  </div>
+</div>
+
+<!-- DOTS -->
+<div class="dots-row" id="dotsRow"></div>
+
+<!-- PROGRESS -->
+<div class="progress-section">
+  <div class="progress-track"><div class="progress-fill" id="pFill"></div></div>
+  <div class="progress-info">
+    <span class="step-counter" id="stepCtr">0 / 13</span>
+    <span class="step-label" id="stepLbl">Press Play to walk through the deployment</span>
+  </div>
+</div>
+
+<!-- DIAGRAM -->
+<div class="diagram-wrap">
+
+  <!-- LANE 1: SOURCE -->
+  <div class="lane" id="lane-src">
+    <div class="lane-label">Source</div>
+    <div class="lane-content">
+
+      <div class="node" id="n-dev">
+        <div class="icon-box bg-gray">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#8892A4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+          </svg>
+        </div>
+        <div class="node-name c-gray">Developer</div>
+        <div class="node-desc">git push origin main</div>
+      </div>
+
+      <div class="arr" id="a-dev-gh">
+        <div class="arr-line arr-green"><div class="arr-dot arr-green"></div><span class="arr-lbl">git push</span></div>
+      </div>
+
+      <div class="node" id="n-github">
+        <div class="icon-box bg-gray glow-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#8892A4" stroke-width="1.8" stroke-linecap="round">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+          </svg>
+        </div>
+        <div class="node-name c-gray">GitHub</div>
+        <div class="node-desc">Sambhav-gg/my-app<br>Webhook trigger</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LANE 2: CI/CD -->
+  <div class="lane" id="lane-cicd">
+    <div class="lane-label">CI / CD</div>
+    <div class="lane-content" style="flex-wrap:nowrap; overflow-x:auto;">
+
+      <div class="arr" id="a-gh-jenkins">
+        <div class="arr-line arr-aws"><div class="arr-dot arr-aws"></div><span class="arr-lbl">webhook POST</span></div>
+      </div>
+
+      <!-- Jenkins compound -->
+      <div class="pipeline-wrap" id="pipeline-box">
+        <div class="node" id="n-jenkins" style="opacity:1;transform:none;margin-right:16px;">
+          <div class="icon-box bg-jenkins" style="border-color:rgba(210,73,57,0.3);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#e87f70" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 8v4l3 3"/>
+              <circle cx="12" cy="12" r="3" fill="rgba(210,73,57,0.2)"/>
+            </svg>
+          </div>
+          <div class="node-name c-jenkins">Jenkins</div>
+          <div class="node-desc">Jenkinsfile<br>Pipeline</div>
+        </div>
+
+        <div class="pipe-stage" id="ps-checkout">
+          <div class="pipe-pill">Checkout<br><span style="font-size:8px;opacity:0.55">git pull</span></div>
+          <div class="pipe-tick">✓</div>
+        </div>
+        <div class="pipe-arr" id="pa1"></div>
+
+        <div class="pipe-stage" id="ps-build">
+          <div class="pipe-pill">Build<br><span style="font-size:8px;opacity:0.55">npm ci</span></div>
+          <div class="pipe-tick">✓</div>
+        </div>
+        <div class="pipe-arr" id="pa2"></div>
+
+        <div class="pipe-stage" id="ps-test">
+          <div class="pipe-pill">Test<br><span style="font-size:8px;opacity:0.55">smoke /check</span></div>
+          <div class="pipe-tick">✓</div>
+        </div>
+        <div class="pipe-arr" id="pa3"></div>
+
+        <div class="pipe-stage" id="ps-docker">
+          <div class="pipe-pill">Docker Build<br><span style="font-size:8px;opacity:0.55">multi-stage</span></div>
+          <div class="pipe-tick">✓</div>
+        </div>
+        <div class="pipe-arr" id="pa4"></div>
+
+        <div class="pipe-stage" id="ps-ecr">
+          <div class="pipe-pill">ECR Push<br><span style="font-size:8px;opacity:0.55">tag:commit-SHA</span></div>
+          <div class="pipe-tick">✓</div>
+        </div>
+        <div class="pipe-arr" id="pa5"></div>
+
+        <div class="pipe-stage" id="ps-deploy">
+          <div class="pipe-pill">SSH Deploy<br><span style="font-size:8px;opacity:0.55">docker run</span></div>
+          <div class="pipe-tick">✓</div>
+        </div>
+        <div class="pipe-arr" id="pa6"></div>
+
+        <div class="pipe-stage" id="ps-verify">
+          <div class="pipe-pill">Verify<br><span style="font-size:8px;opacity:0.55">ALB /check</span></div>
+          <div class="pipe-tick">✓</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LANE 3: REGISTRY + COMPUTE -->
+  <div class="lane" id="lane-compute">
+    <div class="lane-label">Registry + Compute</div>
+    <div class="lane-content" style="flex-wrap:nowrap;">
+
+      <div class="node" id="n-ecr">
+        <div class="icon-box bg-aws glow-aws">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FF9900" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="3"/>
+            <path d="M9 9l6 3-6 3V9z"/>
+          </svg>
+        </div>
+        <div class="node-name c-aws">AWS ECR</div>
+        <div class="node-desc">Docker Registry<br>Last 5 images kept</div>
+      </div>
+
+      <div class="arr" id="a-ecr-ec2">
+        <div class="arr-line arr-docker"><div class="arr-dot arr-docker"></div><span class="arr-lbl">docker pull</span></div>
+      </div>
+
+      <div class="node" id="n-ec2">
+        <div class="icon-box bg-aws glow-aws">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FF9900" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <path d="M12 4v16M2 12h20"/>
+          </svg>
+        </div>
+        <div class="node-name c-aws">App EC2</div>
+        <div class="node-desc">t3.micro · Ubuntu<br>Docker + Nginx</div>
+      </div>
+
+      <div class="arr" id="a-ec2-nginx">
+        <div class="arr-line arr-green"><div class="arr-dot arr-green"></div><span class="arr-lbl">:80 → :3000</span></div>
+      </div>
+
+      <div class="node" id="n-nginx">
+        <div class="icon-box bg-green glow-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#00FF87" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div class="node-name c-green">Nginx</div>
+        <div class="node-desc">Reverse Proxy<br>Gzip + Security hdrs</div>
+      </div>
+
+      <div class="arr" id="a-nginx-app">
+        <div class="arr-line arr-docker"><div class="arr-dot arr-docker"></div><span class="arr-lbl">proxy_pass</span></div>
+      </div>
+
+      <div class="node" id="n-app">
+        <div class="icon-box bg-docker glow-docker">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2496ED" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12s1.5-4 10-4 10 4 10 4-1.5 4-10 4-10-4-10-4z"/>
+            <circle cx="12" cy="12" r="2"/>
+          </svg>
+        </div>
+        <div class="node-name c-docker">Node.js App</div>
+        <div class="node-desc">Express · port 3000<br>non-root Docker user</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LANE 4: TRAFFIC -->
+  <div class="lane" id="lane-traffic">
+    <div class="lane-label">Traffic</div>
+    <div class="lane-content" style="flex-wrap:nowrap;">
+
+      <div class="node" id="n-internet">
+        <div class="icon-box bg-gray">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#8892A4" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </div>
+        <div class="node-name c-gray">Internet</div>
+        <div class="node-desc">HTTP :80</div>
+      </div>
+
+      <div class="arr" id="a-int-alb">
+        <div class="arr-line arr-aws"><div class="arr-dot arr-aws"></div><span class="arr-lbl">route 53 / direct</span></div>
+      </div>
+
+      <div class="node" id="n-alb">
+        <div class="icon-box bg-aws glow-aws">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FF9900" stroke-width="1.8" stroke-linecap="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"/>
+            <path d="M12 8v8M8 12h8"/>
+          </svg>
+        </div>
+        <div class="node-name c-aws">ALB</div>
+        <div class="node-desc">App Load Balancer<br>eu-north-1</div>
+      </div>
+
+      <div class="arr" id="a-alb-tg">
+        <div class="arr-line arr-aws"><div class="arr-dot arr-aws"></div><span class="arr-lbl">forward :80</span></div>
+      </div>
+
+      <div class="node" id="n-tg">
+        <div class="icon-box bg-aws glow-aws">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FF9900" stroke-width="1.8" stroke-linecap="round">
+            <rect x="2" y="8" width="20" height="8" rx="2"/>
+            <circle cx="7" cy="12" r="1.5" fill="#FF9900"/>
+            <circle cx="12" cy="12" r="1.5" fill="#FF9900"/>
+            <circle cx="17" cy="12" r="1.5" fill="#FF9900"/>
+          </svg>
+        </div>
+        <div class="node-name c-aws">Target Group</div>
+        <div class="node-desc">Health /check<br>interval 30s</div>
+      </div>
+
+      <div class="arr" id="a-tg-asg">
+        <div class="arr-line arr-green"><div class="arr-dot arr-green"></div><span class="arr-lbl">routes to</span></div>
+      </div>
+
+      <!-- ASG -->
+      <div class="asg-wrap" id="asg-box">
+        <div class="inst-row" id="inst1">
+          <div class="inst-ico">🖥</div>
+          <div class="inst-info">
+            <div class="inst-name">EC2 Instance #1</div>
+            <div class="inst-meta">AZ: eu-north-1a · t3.micro</div>
+          </div>
+          <div class="inst-badge">HEALTHY</div>
+        </div>
+        <div class="inst-row" id="inst2">
+          <div class="inst-ico">🖥</div>
+          <div class="inst-info">
+            <div class="inst-name">EC2 Instance #2</div>
+            <div class="inst-meta">AZ: eu-north-1b · t3.micro</div>
+          </div>
+          <div class="inst-badge">HEALTHY</div>
+        </div>
+        <div class="inst-row" id="inst3" style="opacity:0.35;border-style:dashed;">
+          <div class="inst-ico">🖥</div>
+          <div class="inst-info">
+            <div class="inst-name">EC2 Instance #3</div>
+            <div class="inst-meta">AZ: eu-north-1a · CPU &gt;70% → scale out</div>
+          </div>
+          <div class="inst-badge" style="opacity:0.4;">STANDBY</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LANE 5: MONITORING -->
+  <div class="lane" id="lane-mon">
+    <div class="lane-label">Monitoring</div>
+    <div class="lane-content" style="flex-wrap:nowrap;">
+
+      <div class="node" id="n-eventbridge">
+        <div class="icon-box bg-purple glow-purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#B57BFF" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </div>
+        <div class="node-name c-purple">EventBridge</div>
+        <div class="node-desc">Cron scheduler<br>rate(5 minutes)</div>
+      </div>
+
+      <div class="arr" id="a-eb-lambda">
+        <div class="arr-line arr-purple"><div class="arr-dot arr-purple"></div><span class="arr-lbl">triggers</span></div>
+      </div>
+
+      <div class="node" id="n-lambda">
+        <div class="icon-box bg-yellow glow-yellow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FFD166" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+          </svg>
+        </div>
+        <div class="node-name c-yellow">Lambda</div>
+        <div class="node-desc">uptime-monitor.js<br>Node.js 18.x</div>
+      </div>
+
+      <div class="arr" id="a-lambda-cw">
+        <div class="arr-line arr-pink"><div class="arr-dot arr-pink"></div><span class="arr-lbl">logs + alarm</span></div>
+      </div>
+
+      <div class="monitor-wrap" id="monitor-box">
+
+        <div class="node" id="n-cw" style="opacity:1;transform:none;">
+          <div class="icon-box bg-pink" style="border-color:rgba(255,107,157,0.3); width:58px;height:58px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#FF6B9D" stroke-width="1.8" stroke-linecap="round">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+            </svg>
+          </div>
+          <div class="node-name c-pink">CloudWatch</div>
+          <div class="node-desc">Logs · Metrics<br>Alarms · Dashboard</div>
+        </div>
+
+        <div class="arr" id="a-cw-sns" style="opacity:0;transition:opacity 0.4s;">
+          <div class="arr-line arr-pink"><div class="arr-dot arr-pink"></div><span class="arr-lbl">on failure</span></div>
+        </div>
+
+        <div class="node" id="n-sns" style="opacity:1;transform:none;">
+          <div class="icon-box bg-red" style="border-color:rgba(255,71,87,0.3); width:58px;height:58px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#FF4757" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+          </div>
+          <div class="node-name c-red">SNS Alert</div>
+          <div class="node-desc">Email on downtime<br>sambhavgarg24@gmail</div>
+        </div>
+
+      </div>
+
+      <div class="arr" id="a-eb-cloudwatch" style="opacity:0;transition:opacity 0.4s;">
+        <div class="arr-line arr-teal"><div class="arr-dot arr-teal"></div><span class="arr-lbl">CPU alarms</span></div>
+      </div>
+
+      <div class="node" id="n-asg-scale">
+        <div class="icon-box bg-teal glow-teal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#00D4AA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+            <polyline points="17 6 23 6 23 12"/>
+          </svg>
+        </div>
+        <div class="node-name c-teal">Auto Scaling</div>
+        <div class="node-desc">CPU &gt;70% → scale out<br>CPU &lt;30% → scale in</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- TERMINAL -->
+<div class="terminal-section">
+  <div class="terminal" id="terminal">
+    <div class="term-bar">
+      <div class="tdot" style="background:#ef4444;"></div>
+      <div class="tdot" style="background:#facc15;"></div>
+      <div class="tdot" style="background:#22c55e;"></div>
+      <span class="term-title">Jenkins Console Output — Sambhav-gg/my-app · eu-north-1</span>
+      <span class="term-status" id="termStatus">RUNNING</span>
+    </div>
+    <div class="term-body" id="termBody"><span class="cursor"></span></div>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-row">
+  <div class="stat">
+    <div class="stat-val c-green">7</div>
+    <div class="stat-key">Pipeline Stages</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val c-aws">13</div>
+    <div class="stat-key">AWS Services</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val c-docker">6</div>
+    <div class="stat-key">Terraform Files</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val c-purple">5 min</div>
+    <div class="stat-key">Uptime Check Interval</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val c-teal">1→3</div>
+    <div class="stat-key">Auto Scale Range</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" style="color:var(--yellow);">~2 min</div>
+    <div class="stat-key">Deploy Duration</div>
+  </div>
+</div>
+
+<script>
+// ── STEPS ──────────────────────────────────────────────────────────────────
+const STEPS = [
+  {
+    label: '① Developer pushes code to GitHub',
+    show: ['n-dev', 'n-github'],
+    arrows: ['a-dev-gh'],
+    log: [
+      { t:'tl-s', x:'$ git add . && git commit -m "feat: update status dashboard"' },
+      { t:'tl-g', x:'$ git push origin main' },
+      { t:'tl-s', x:'Enumerating objects: 8, done.' },
+      { t:'tl-s', x:'Writing objects: 100% (8/8) — 4.21 KiB' },
+      { t:'tl-w', x:'  main → main  ✓' },
+    ]
+  },
+  {
+    label: '② GitHub fires webhook → Jenkins triggered',
+    arrows: ['a-gh-jenkins'],
+    show: ['pipeline-box'],
+    log: [
+      { t:'tl-a', x:'Webhook POST → http://jenkins-ec2:8080/github-webhook/' },
+      { t:'tl-s', x:'HTTP 200 OK — Jenkins received event' },
+      { t:'tl-w', x:'Started by GitHub push by Sambhav-gg' },
+      { t:'tl-s', x:'Obtained Jenkinsfile from SCM' },
+      { t:'tl-g', x:'[Pipeline] Start of Pipeline' },
+    ]
+  },
+  {
+    label: '③ Stage: Checkout — clone repo at commit SHA',
+    pipeStages: ['ps-checkout'], pipeArrows: ['pa1'],
+    log: [
+      { t:'tl-a', x:'[Pipeline] stage (Checkout)' },
+      { t:'tl-s', x:'Checkout SCM' },
+      { t:'tl-g', x:'  Commit: a3f8b2c  Branch: origin/main' },
+      { t:'tl-g', x:'  Building commit a3f8b2c on branch main' },
+    ]
+  },
+  {
+    label: '④ Stage: Build & Test — npm ci + smoke test',
+    pipeStages: ['ps-build', 'ps-test'], pipeArrows: ['pa2', 'pa3'],
+    log: [
+      { t:'tl-a', x:'[Pipeline] stage (Build & Test)' },
+      { t:'tl-s', x:'  + npm ci --prefer-offline' },
+      { t:'tl-s', x:'  added 65 packages in 3.1s' },
+      { t:'tl-s', x:'  Smoke test: node -e "require(\'./app\')"' },
+      { t:'tl-g', x:'  Smoke test passed — /check returned 200 ✓' },
+    ]
+  },
+  {
+    label: '⑤ Stage: Docker Build — multi-stage image (node:18-alpine)',
+    pipeStages: ['ps-docker'], pipeArrows: ['pa4'],
+    log: [
+      { t:'tl-a', x:'[Pipeline] stage (Docker Build)' },
+      { t:'tl-s', x:'  + docker build -t 016605188495.dkr.ecr.eu-north-1.amazonaws.com/my-app:a3f8b2c .' },
+      { t:'tl-s', x:'  Stage 1: node:18-alpine (builder) — npm ci --only=production' },
+      { t:'tl-s', x:'  Stage 2: node:18-alpine (production) — non-root appuser' },
+      { t:'tl-g', x:'  Image built: my-app:a3f8b2c — 98MB ✓' },
+    ]
+  },
+  {
+    label: '⑥ Stage: ECR Push — image tagged with Git SHA',
+    pipeStages: ['ps-ecr'], pipeArrows: ['pa5'],
+    show: ['n-ecr'],
+    log: [
+      { t:'tl-a', x:'[Pipeline] stage (ECR Push)' },
+      { t:'tl-s', x:'  + aws ecr get-login-password | docker login ...' },
+      { t:'tl-g', x:'  Login Succeeded' },
+      { t:'tl-s', x:'  + docker push .../my-app:a3f8b2c' },
+      { t:'tl-s', x:'  + docker push .../my-app:latest' },
+      { t:'tl-g', x:'  Lifecycle: keeping last 5 images only ✓' },
+    ]
+  },
+  {
+    label: '⑦ Stage: SSH Deploy — pull image, docker run on App EC2',
+    pipeStages: ['ps-deploy'], pipeArrows: ['pa6'],
+    show: ['n-ec2', 'n-nginx', 'n-app'],
+    arrows: ['a-ecr-ec2', 'a-ec2-nginx', 'a-nginx-app'],
+    log: [
+      { t:'tl-a', x:'[Pipeline] stage (Deploy)' },
+      { t:'tl-d', x:'  + ssh -o StrictHostKeyChecking=no ubuntu@10.0.1.68' },
+      { t:'tl-s', x:'  docker pull .../my-app:a3f8b2c' },
+      { t:'tl-s', x:'  docker stop my-app && docker rm my-app' },
+      { t:'tl-s', x:'  docker run -d --name my-app --restart unless-stopped -p 3000:3000 ...' },
+      { t:'tl-g', x:'  Container started — health: starting → healthy ✓' },
+    ]
+  },
+  {
+    label: '⑧ Stage: Verify — ALB polls /check, confirms 200',
+    pipeStages: ['ps-verify'],
+    show: ['n-internet', 'n-alb', 'n-tg'],
+    arrows: ['a-int-alb', 'a-alb-tg'],
+    log: [
+      { t:'tl-a', x:'[Pipeline] stage (Verify)' },
+      { t:'tl-s', x:'  Polling ALB health check...' },
+      { t:'tl-d', x:'  Attempt 1: HTTP 200' },
+      { t:'tl-g', x:'  Deployment verified — app is live ✓' },
+      { t:'tl-g', x:'  App URL: http://my-app-alb-2033694162.eu-north-1.elb.amazonaws.com' },
+    ]
+  },
+  {
+    label: '⑨ ALB routes traffic to ASG — 2 healthy instances',
+    show: ['asg-box', 'inst1', 'inst2'],
+    arrows: ['a-tg-asg'],
+    log: [
+      { t:'tl-a', x:'ALB Target Group: /check health check' },
+      { t:'tl-g', x:'  Instance i-0a1 (eu-north-1a) — HEALTHY ✓' },
+      { t:'tl-g', x:'  Instance i-0b2 (eu-north-1b) — HEALTHY ✓' },
+      { t:'tl-s', x:'  ASG desired:1 min:1 max:3 — scale on CPU' },
+    ]
+  },
+  {
+    label: '⑩ Slack notification — success with commit SHA & build URL',
+    log: [
+      { t:'tl-g', x:'✅  Deploy succeeded — my-app @ a3f8b2c' },
+      { t:'tl-s', x:'    Branch: main  |  Build: #24' },
+      { t:'tl-s', x:'    App URL: http://my-app-alb-2033694162.eu-north-1.elb.amazonaws.com' },
+      { t:'tl-g', x:'    Duration: 1 min 47 sec' },
+      { t:'tl-w', x:'[Pipeline] End of Pipeline — FINISHED SUCCESS' },
+    ]
+  },
+  {
+    label: '⑪ EventBridge triggers Lambda uptime check every 5 minutes',
+    show: ['n-eventbridge', 'n-lambda'],
+    arrows: ['a-eb-lambda'],
+    log: [
+      { t:'tl-p', x:'EventBridge rule: rate(5 minutes) fired' },
+      { t:'tl-y', x:'Lambda: my-app-uptime-monitor invoked' },
+      { t:'tl-s', x:'  GET http://<alb-dns>/check  timeout:8s' },
+      { t:'tl-g', x:'  HTTP 200 — {"status":"ok","timestamp":"..."}' },
+      { t:'tl-g', x:'  App is UP ✓' },
+    ]
+  },
+  {
+    label: '⑫ CloudWatch logs Lambda results — alarm ready if failures detected',
+    arrows: ['a-lambda-cw'],
+    show: ['monitor-box'],
+    extraShow: ['a-cw-sns'],
+    log: [
+      { t:'tl-pk', x:'CloudWatch Logs: /aws/lambda/my-app-uptime-monitor' },
+      { t:'tl-g', x:'  App is UP ✓  responseTime: 138ms' },
+      { t:'tl-s', x:'  Alarm "my-app-downtime-alerts": state OK' },
+      { t:'tl-s', x:'  On failure → SNS → sambhavgarg24@gmail.com' },
+    ]
+  },
+  {
+    label: '⑬ Auto Scaling monitors CPU — scales 1→3 instances on load',
+    show: ['n-asg-scale'],
+    extraShow: ['a-eb-cloudwatch'],
+    log: [
+      { t:'tl-s', x:'CloudWatch Alarm: my-app-cpu-high' },
+      { t:'tl-s', x:'  Metric: CPUUtilization · Threshold: 70%' },
+      { t:'tl-s', x:'  Evaluation: 2 periods of 60s' },
+      { t:'tl-g', x:'  On alarm → ASG scale-out (+1 instance) ✓' },
+      { t:'tl-s', x:'CloudWatch Alarm: my-app-cpu-low' },
+      { t:'tl-g', x:'  CPU < 30% for 5 min → scale-in (-1 instance) ✓' },
+      { t:'', x:'' },
+      { t:'tl-w', x:'Full deployment cycle complete. Infrastructure healthy. 🚀' },
+    ]
+  },
+];
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let cur = -1, playing = false, timer = null;
+
+// build dots
+const dotsRow = document.getElementById('dotsRow');
+STEPS.forEach((_, i) => {
+  const d = document.createElement('div');
+  d.className = 'sdot'; d.id = 'dot'+i;
+  d.onclick = () => { if(!playing) jumpTo(i); };
+  dotsRow.appendChild(d);
+});
+
+function speed() { return parseInt(document.getElementById('speedRange').value); }
+
+function refreshDots() {
+  STEPS.forEach((_, i) => {
+    const d = document.getElementById('dot'+i);
+    d.className = 'sdot' + (i < cur ? ' done' : i === cur ? ' current' : '');
+  });
+}
+
+function show(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('visible');
+  el.classList.remove('dim');
+}
+
+function appendLog(lines) {
+  const body = document.getElementById('termBody');
+  const existing = body.querySelectorAll('.tl');
+  if (existing.length > 60) {
+    Array.from(existing).slice(0,20).forEach(e => e.remove());
+  }
+  const cursor = body.querySelector('.cursor');
+  if (cursor) cursor.remove();
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      if (!l.x) return;
+      const div = document.createElement('div');
+      div.className = 'tl ' + (l.t || '');
+      div.textContent = l.x;
+      body.appendChild(div);
+      setTimeout(() => div.classList.add('show'), 20);
+      body.scrollTop = body.scrollHeight;
+    }, i * 100);
+  });
+  setTimeout(() => {
+    const c = document.createElement('span');
+    c.className = 'cursor';
+    body.appendChild(c);
+    body.scrollTop = body.scrollHeight;
+  }, lines.length * 100 + 80);
+}
+
+function runStep(idx) {
+  if (idx >= STEPS.length) {
+    playing = false;
+    document.getElementById('playBtn').textContent = '▶ Play';
+    document.getElementById('stepLbl').textContent = '✅ Full deployment cycle complete!';
+    document.getElementById('stepLbl').style.color = 'var(--green)';
+    document.getElementById('termStatus').textContent = 'SUCCESS';
+    document.getElementById('termStatus').style.color = 'var(--green)';
+    return;
+  }
+  cur = idx;
+  const s = STEPS[idx];
+
+  document.getElementById('pFill').style.width = ((idx+1)/STEPS.length*100)+'%';
+  document.getElementById('stepCtr').textContent = (idx+1)+' / '+STEPS.length;
+  document.getElementById('stepLbl').textContent = s.label;
+  document.getElementById('stepLbl').style.color = '';
+
+  if (s.show) s.show.forEach(show);
+  if (s.arrows) s.arrows.forEach(show);
+  if (s.pipeStages) s.pipeStages.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.classList.add('visible'); el.classList.add('done'); }
+  });
+  if (s.pipeArrows) s.pipeArrows.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('visible');
+  });
+  if (s.extraShow) s.extraShow.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.opacity = '1';
+  });
+
+  document.getElementById('terminal').classList.add('visible');
+  if (s.log) appendLog(s.log);
+  refreshDots();
+}
+
+function stepNext() {
+  if (cur < STEPS.length - 1) runStep(cur + 1);
+}
+
+function jumpTo(idx) {
+  resetAll(false);
+  for (let i = 0; i <= idx; i++) runStep(i);
+}
+
+function playAll() {
+  if (playing) {
+    playing = false; clearTimeout(timer);
+    document.getElementById('playBtn').textContent = '▶ Play';
+    return;
+  }
+  playing = true;
+  document.getElementById('playBtn').textContent = '⏸ Pause';
+  function next(i) {
+    if (!playing || i >= STEPS.length) {
+      playing = false;
+      document.getElementById('playBtn').textContent = '▶ Play';
+      if (i >= STEPS.length) {
+        document.getElementById('stepLbl').textContent = '✅ Full deployment cycle complete!';
+        document.getElementById('stepLbl').style.color = 'var(--green)';
+        document.getElementById('termStatus').textContent = 'SUCCESS';
+        document.getElementById('termStatus').style.color = 'var(--green)';
+      }
+      return;
+    }
+    runStep(i);
+    timer = setTimeout(() => next(i+1), speed());
+  }
+  next(cur + 1);
+}
+
+function resetAll(full=true) {
+  playing = false; clearTimeout(timer);
+  cur = -1;
+  if (full) {
+    document.getElementById('playBtn').textContent = '▶ Play';
+    document.getElementById('pFill').style.width = '0%';
+    document.getElementById('stepCtr').textContent = '0 / 13';
+    document.getElementById('stepLbl').textContent = 'Press Play to walk through the deployment';
+    document.getElementById('stepLbl').style.color = '';
+    document.getElementById('termBody').innerHTML = '<span class="cursor"></span>';
+    document.getElementById('terminal').classList.remove('visible');
+    document.getElementById('termStatus').textContent = 'RUNNING';
+    document.getElementById('termStatus').style.color = 'var(--green)';
+  }
+  document.querySelectorAll('.node,.arr,.pipeline-wrap,.asg-wrap,.monitor-wrap').forEach(el => {
+    el.classList.remove('visible','dim');
+  });
+  document.querySelectorAll('.pipe-stage').forEach(el => el.classList.remove('visible','done'));
+  document.querySelectorAll('.pipe-arr').forEach(el => el.classList.remove('visible'));
+  document.querySelectorAll('.inst-row').forEach(el => el.classList.remove('visible'));
+  document.getElementById('a-cw-sns').style.opacity = '0';
+  const eb2cw = document.getElementById('a-eb-cloudwatch');
+  if (eb2cw) eb2cw.style.opacity = '0';
+  // always keep these internal monitor nodes visible
+  ['n-cw','n-sns'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.style.opacity='1'; el.style.transform='none'; }
+  });
+  refreshDots();
+}
+
+// speed label
+document.getElementById('speedRange').addEventListener('input', function() {
+  const v = parseInt(this.value);
+  const x = (2200-v)/(2200-400);
+  document.getElementById('speedVal').textContent = (0.5+x*1.5).toFixed(1)+'x';
+});
+
+// init
+window.addEventListener('load', () => resetAll(true));
+</script>
+</body>
+</html>
