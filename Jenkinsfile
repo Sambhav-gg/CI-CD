@@ -3,10 +3,10 @@ pipeline {
 
     environment {
         AWS_REGION      = 'eu-north-1'
-        ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com'
+        ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com/my-app'
         ECR_REPO        = 'my-app'
-        APP_EC2_IP      = '10.0.1.68'
-        ALB_DNS         = 'my-app-alb-2033694162.eu-north-1.elb.amazonaws.com'
+        APP_EC2_IP      = '10.0.1.141'
+        ALB_DNS         = 'my-app-alb-1649148263.eu-north-1.elb.amazonaws.com'
         IMAGE_TAG       = "${env.GIT_COMMIT?.take(7) ?: 'latest'}"
         FULL_IMAGE      = "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
     }
