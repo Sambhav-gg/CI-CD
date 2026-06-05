@@ -16,7 +16,7 @@ app.get('/api/status', (req, res) => {
         services: [
             { name: 'API Server', status: 'operational' },
             { name: 'Database', status: 'operational' },
-            { name: 'Cache', status: 'unoperational' },
+            { name: 'Cache', status: 'uoperational' },
             { name: 'Jenkins CI/CD', status: 'operational' },
             { name: 'Docker Registry', status: 'operational' },
             { name: 'Load Balancer', status: 'operational' },
