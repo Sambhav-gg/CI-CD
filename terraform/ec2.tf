@@ -52,9 +52,9 @@ locals {
     exec > /var/log/userdata.log 2>&1
 
     apt-get update -y
-    apt-get upgrade -y
+    apt-get install -y ca-certificates curl gnupg lsb-release unzip nginx
 
-    apt-get install -y ca-certificates curl gnupg lsb-release
+    # Install Docker
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
       -o /etc/apt/keyrings/docker.asc
@@ -70,13 +70,12 @@ locals {
     systemctl start docker
     usermod -aG docker ubuntu
 
-    apt-get install -y unzip
+    # Install AWS CLI
     curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" \
       -o "/tmp/awscliv2.zip"
     unzip /tmp/awscliv2.zip -d /tmp
     /tmp/aws/install
 
-    apt-get install -y nginx
     systemctl enable nginx
     systemctl start nginx
 
@@ -213,9 +212,6 @@ locals {
       -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
     apt-get install -y htop curl wget jq
-
-    # Wait for Docker to be ready
-    sleep 30
 
     # Deploy latest image automatically
     /home/ubuntu/deploy.sh \
