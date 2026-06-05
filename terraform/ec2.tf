@@ -203,6 +203,16 @@ locals {
       -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
     apt-get install -y htop curl wget jq
+
+    # Wait for Docker to be ready
+    sleep 30
+
+    # Deploy latest image automatically
+    /home/ubuntu/deploy.sh \
+    016605188495.dkr.ecr.eu-north-1.amazonaws.com \
+    latest \
+    eu-north-1 || echo "Initial deploy failed"
+    
   EOF
 }
 
