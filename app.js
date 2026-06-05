@@ -23,6 +23,7 @@ app.get('/api/status', (req, res) => {
             { name: 'Auto Scaling', status: 'operational' },
             { name: 'CloudWatch', status: 'operational' },
         ],
+        //to test
         system: {
             uptime_seconds: uptime,
             uptime_human: formatUptime(uptime),
