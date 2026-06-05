@@ -75,58 +75,77 @@ pipeline {
 
         // ── 5. DEPLOY ─────────────────────────────────────────────────────────
         stage('Deploy') {
-            steps {
-                sh """
-                    # 1. Write the new image tag to SSM
-                    aws ssm put-parameter \
-                      --name /myapp/deploy/image-tag \
-                      --value ${IMAGE_TAG} \
-                      --type String \
-                      --overwrite \
-                      --region ${AWS_REGION}
+    steps {
+        sh """
+            # Update deployment tag in SSM
+            aws ssm put-parameter \
+              --name /myapp/deploy/image-tag \
+              --value ${IMAGE_TAG} \
+              --type String \
+              --overwrite \
+              --region ${AWS_REGION}
 
-                    echo "SSM updated: /myapp/deploy/image-tag = ${IMAGE_TAG}"
+            echo "SSM updated: ${IMAGE_TAG}"
 
-                    # 2. Trigger a rolling instance refresh on the ASG
-                    REFRESH_ID=\$(aws autoscaling start-instance-refresh \
-                      --auto-scaling-group-name ${ASG_NAME} \
-                      --preferences '{"MinHealthyPercentage": 50, "InstanceWarmup": 300}' \
-                      --region ${AWS_REGION} \
-                      --query InstanceRefreshId \
-                      --output text)
+            # Check if refresh already running
+            CURRENT_STATUS=\$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name ${ASG_NAME} \
+              --region ${AWS_REGION} \
+              --query 'InstanceRefreshes[0].Status' \
+              --output text 2>/dev/null || echo "None")
 
-                    echo "Instance refresh started: \$REFRESH_ID"
+            echo "Current refresh status: \$CURRENT_STATUS"
 
-                    # 3. Wait for the refresh to complete (poll every 15s, max 10 mins)
-                    echo "Waiting for instance refresh to complete..."
-                    for i in \$(seq 1 40); do
-                      STATUS=\$(aws autoscaling describe-instance-refreshes \
-                        --auto-scaling-group-name ${ASG_NAME} \
-                        --instance-refresh-ids \$REFRESH_ID \
-                        --region ${AWS_REGION} \
-                        --query 'InstanceRefreshes[0].Status' \
-                        --output text)
-                      
-                      echo "Attempt \$i/40: Refresh status = \$STATUS"
-                      
-                      if [ "\$STATUS" = "Successful" ]; then
-                        echo "Instance refresh completed successfully."
-                        exit 0
-                      fi
-                      
-                      if [ "\$STATUS" = "Failed" ] || [ "\$STATUS" = "Cancelled" ]; then
-                        echo "ERROR: Instance refresh failed with status: \$STATUS"
-                        exit 1
-                      fi
-                      
-                      sleep 15
-                    done
+            if [ "\$CURRENT_STATUS" = "InProgress" ] || \
+               [ "\$CURRENT_STATUS" = "Pending" ]; then
+                echo "Refresh already running. Waiting for completion..."
+                REFRESH_ID=\$(aws autoscaling describe-instance-refreshes \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --region ${AWS_REGION} \
+                  --query 'InstanceRefreshes[0].InstanceRefreshId' \
+                  --output text)
+            else
+                REFRESH_ID=\$(aws autoscaling start-instance-refresh \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --preferences '{"MinHealthyPercentage":50,"InstanceWarmup":120}' \
+                  --region ${AWS_REGION} \
+                  --query InstanceRefreshId \
+                  --output text)
 
-                    echo "ERROR: Instance refresh did not complete within 10 minutes"
+                echo "Started refresh: \$REFRESH_ID"
+            fi
+
+            echo "Waiting for refresh completion..."
+
+            for i in \$(seq 1 60); do
+                STATUS=\$(aws autoscaling describe-instance-refreshes \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --instance-refresh-ids \$REFRESH_ID \
+                  --region ${AWS_REGION} \
+                  --query 'InstanceRefreshes[0].Status' \
+                  --output text)
+
+                echo "Attempt \$i/60 - Status: \$STATUS"
+
+                if [ "\$STATUS" = "Successful" ]; then
+                    echo "Refresh completed successfully"
+                    exit 0
+                fi
+
+                if [ "\$STATUS" = "Failed" ] || \
+                   [ "\$STATUS" = "Cancelled" ]; then
+                    echo "Refresh failed: \$STATUS"
                     exit 1
-                """
-            }
-        }
+                fi
+
+                sleep 15
+            done
+
+            echo "Timeout waiting for refresh"
+            exit 1
+        """
+    }
+}
 
         // ── 6. VERIFY ────────────────────────────────────────────────────────
         stage('Verify') {
