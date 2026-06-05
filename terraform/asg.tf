@@ -69,3 +69,5 @@ resource "aws_autoscaling_policy" "scale_in" {
   scaling_adjustment     = -1
   cooldown               = 300
 }
+
+//test
