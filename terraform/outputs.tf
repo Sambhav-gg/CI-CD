@@ -5,10 +5,6 @@
    description = "Jenkins EC2 public IP"
  }
 
- output "app_private_ip" {
-   value       = aws_instance.app.private_ip
-   description = "App EC2 private IP"
- }
 
  output "alb_dns" {
    value       = aws_lb.app.dns_name

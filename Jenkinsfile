@@ -5,7 +5,7 @@ pipeline {
         AWS_REGION      = 'eu-north-1'
         ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com'
         ECR_REPO        = 'my-app'
-        APP_EC2_IP      = '10.0.1.141'
+        ASG_NAME        = 'my-app-asg'
         ALB_DNS         = 'my-app-alb-1649148263.eu-north-1.elb.amazonaws.com'
         IMAGE_TAG       = "${env.GIT_COMMIT?.take(7) ?: 'latest'}"
         FULL_IMAGE      = "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
@@ -76,35 +76,55 @@ pipeline {
         // ── 5. DEPLOY ─────────────────────────────────────────────────────────
         stage('Deploy') {
             steps {
-                sshagent(credentials: ['ec2-ssh-key']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@${APP_EC2_IP} '
-                            set -e
+                sh """
+                    # 1. Write the new image tag to SSM
+                    aws ssm put-parameter \
+                      --name /myapp/deploy/image-tag \
+                      --value ${IMAGE_TAG} \
+                      --type String \
+                      --overwrite \
+                      --region ${AWS_REGION}
 
-                            # Authenticate with ECR
-                            aws ecr get-login-password --region ${AWS_REGION} \
-                              | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                    echo "SSM updated: /myapp/deploy/image-tag = ${IMAGE_TAG}"
 
-                            # Pull the new image
-                            docker pull ${FULL_IMAGE}
+                    # 2. Trigger a rolling instance refresh on the ASG
+                    REFRESH_ID=\$(aws autoscaling start-instance-refresh \
+                      --auto-scaling-group-name ${ASG_NAME} \
+                      --preferences '{"MinHealthyPercentage": 50, "InstanceWarmup": 60}' \
+                      --region ${AWS_REGION} \
+                      --query InstanceRefreshId \
+                      --output text)
 
-                            # Graceful replacement: start new, stop old
-                            docker stop my-app 2>/dev/null || true
-                            docker rm   my-app 2>/dev/null || true
+                    echo "Instance refresh started: \$REFRESH_ID"
 
-                            docker run -d \
-                                --name my-app \
-                                --restart unless-stopped \
-                                -p 3000:3000 \
-                                -e NODE_ENV=production \
-                                ${FULL_IMAGE}
+                    # 3. Wait for the refresh to complete (poll every 15s, max 10 mins)
+                    echo "Waiting for instance refresh to complete..."
+                    for i in \$(seq 1 40); do
+                      STATUS=\$(aws autoscaling describe-instance-refreshes \
+                        --auto-scaling-group-name ${ASG_NAME} \
+                        --instance-refresh-ids \$REFRESH_ID \
+                        --region ${AWS_REGION} \
+                        --query 'InstanceRefreshes[0].Status' \
+                        --output text)
+                      
+                      echo "Attempt \$i/40: Refresh status = \$STATUS"
+                      
+                      if [ "\$STATUS" = "Successful" ]; then
+                        echo "Instance refresh completed successfully."
+                        exit 0
+                      fi
+                      
+                      if [ "\$STATUS" = "Failed" ] || [ "\$STATUS" = "Cancelled" ]; then
+                        echo "ERROR: Instance refresh failed with status: \$STATUS"
+                        exit 1
+                      fi
+                      
+                      sleep 15
+                    done
 
-                            echo "Container started — waiting for health check..."
-                            sleep 5
-                            docker inspect --format="{{.State.Health.Status}}" my-app
-                        '
-                    """
-                }
+                    echo "ERROR: Instance refresh did not complete within 10 minutes"
+                    exit 1
+                """
             }
         }
 
@@ -153,36 +173,22 @@ pipeline {
         }
 
         failure {
-            // Attempt rollback to previous :latest before this build pushed a new one
-            sshagent(credentials: ['ec2-ssh-key']) {
-                sh """
-                    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@${APP_EC2_IP} '
-                        PREV=\$(docker images ${ECR_REGISTRY}/${ECR_REPO} \
-                                    --format "{{.Tag}} {{.CreatedAt}}" \
-                                    | sort -k2 -r | awk "NR==2{print \$1}")
-                        if [ -n "\$PREV" ]; then
-                            echo "Rolling back to tag: \$PREV"
-                            docker stop my-app 2>/dev/null || true
-                            docker rm   my-app 2>/dev/null || true
-                            docker run -d \
-                                --name my-app \
-                                --restart unless-stopped \
-                                -p 3000:3000 \
-                                -e NODE_ENV=production \
-                                ${ECR_REGISTRY}/${ECR_REPO}:\$PREV
-                        else
-                            echo "No previous image found — skipping rollback"
-                        fi
-                    ' || true
-                """
-            }
+            sh """
+                # Rollback: write previous tag to SSM and trigger another refresh
+                # For now, cancel any in-progress refresh
+                aws autoscaling cancel-instance-refresh \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --region ${AWS_REGION} || true
+
+                echo "Rollback: to roll back manually, re-run the previous successful build"
+            """
 
             withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')]) {
                 sh """
                     curl -s -X POST \$SLACK_URL \
                         -H 'Content-type: application/json' \
                         -d '{
-                            "text": ":x: *Deploy FAILED* — `${ECR_REPO}` @ `${IMAGE_TAG}` — rollback attempted",
+                            "text": ":x: *Deploy FAILED* — `${ECR_REPO}` @ `${IMAGE_TAG}` — check console for details",
                             "attachments": [{
                                 "color": "#e01e5a",
                                 "fields": [

@@ -116,6 +116,16 @@ locals {
     IMAGE_TAG=$2
     AWS_REGION=$${3:-eu-north-1}
 
+    # Fetch the true tag from SSM parameter if 'latest' is passed or empty
+    if [ "$IMAGE_TAG" = "latest" ] || [ -z "$IMAGE_TAG" ]; then
+      echo "Fetching current deployment tag from SSM Parameter Store..."
+      IMAGE_TAG=$(aws ssm get-parameter \
+        --name "/myapp/deploy/image-tag" \
+        --region "$AWS_REGION" \
+        --query "Parameter.Value" \
+        --output text 2>/dev/null || echo "latest")
+    fi
+
     if [ -z "$ECR_REGISTRY" ] || [ -z "$IMAGE_TAG" ]; then
       echo "Usage: ./deploy.sh <ecr-registry> <image-tag>"
       exit 1
@@ -232,24 +242,5 @@ resource "aws_instance" "jenkins" {
 
   tags = {
     Name = "${var.app_name}-jenkins"
-  }
-}
-
-resource "aws_instance" "app" {
-  ami                    = var.ami_id
-  instance_type          = var.app_instance_type
-  subnet_id              = aws_subnet.public_a.id
-  vpc_security_group_ids = [aws_security_group.app.id]
-  key_name               = var.key_pair_name
-  iam_instance_profile   = aws_iam_instance_profile.app.name
-  user_data              = local.app_userdata
-
-  root_block_device {
-    volume_size = 8
-    volume_type = "gp3"
-  }
-
-  tags = {
-    Name = "${var.app_name}-app"
   }
 }
