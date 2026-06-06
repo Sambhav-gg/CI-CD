@@ -5,25 +5,14 @@ pipeline {
         AWS_REGION      = 'eu-north-1'
         ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com'
         ECR_REPO        = 'my-app'
+        ASG_NAME        = 'my-app-asg'
+        ALB_DNS         = 'my-app-alb-555850501.eu-north-1.elb.amazonaws.com'
         IMAGE_TAG       = "${env.GIT_COMMIT?.take(7) ?: 'latest'}"
         FULL_IMAGE      = "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
-        ALB_DNS         = 'my-app-alb-1649148263.eu-north-1.elb.amazonaws.com'
-
-        // ASG names for each slot
-        BLUE_ASG        = 'my-app-asg-blue'
-        GREEN_ASG       = 'my-app-asg-green'
-
-        // SSM paths
-        SSM_ACTIVE_SLOT = '/myapp/deploy/active-slot'
-        SSM_IMAGE_TAG   = '/myapp/deploy/image-tag'
-        SSM_LISTENER    = '/myapp/infra/listener-arn'
-        SSM_TEST_LIST   = '/myapp/infra/test-listener-arn'
-        SSM_BLUE_TG     = '/myapp/infra/tg-blue-arn'
-        SSM_GREEN_TG    = '/myapp/infra/tg-green-arn'
     }
 
     options {
-        timeout(time: 30, unit: 'MINUTES')
+        timeout(time: 20, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
         disableConcurrentBuilds()
     }
@@ -53,7 +42,7 @@ pipeline {
                                 server.close();
                                 process.exit(1);
                               }
-                              console.log('Smoke test passed');
+                              console.log('Smoke test passed — /check returned 200');
                               server.close();
                             }).on('error', (e) => { server.close(); console.error(e); process.exit(1); });
                           });
@@ -66,7 +55,9 @@ pipeline {
         // ── 3. DOCKER BUILD ──────────────────────────────────────────────────
         stage('Docker Build') {
             steps {
-                sh "docker build -t ${FULL_IMAGE} -t ${ECR_REGISTRY}/${ECR_REPO}:latest ."
+                dir('.') {
+                    sh "docker build -t ${FULL_IMAGE} -t ${ECR_REGISTRY}/${ECR_REPO}:latest ."
+                }
             }
         }
 
@@ -82,199 +73,97 @@ pipeline {
             }
         }
 
-        // ── 5. DETERMINE SLOTS ───────────────────────────────────────────────
-        stage('Determine Slots') {
-            steps {
-                script {
-                    // Read which slot is currently LIVE
-                    env.ACTIVE_SLOT = sh(
-                        script: """aws ssm get-parameter \
-                            --name ${SSM_ACTIVE_SLOT} \
-                            --region ${AWS_REGION} \
-                            --query Parameter.Value \
-                            --output text""",
-                        returnStdout: true
-                    ).trim()
+        // ── 5. DEPLOY ─────────────────────────────────────────────────────────
+        stage('Deploy') {
+    steps {
+        sh """
+            # Update deployment tag in SSM
+            aws ssm put-parameter \
+              --name /myapp/deploy/image-tag \
+              --value ${IMAGE_TAG} \
+              --type String \
+              --overwrite \
+              --region ${AWS_REGION}
 
-                    // The IDLE slot is where we deploy the new version
-                    env.IDLE_SLOT = (env.ACTIVE_SLOT == 'blue') ? 'green' : 'blue'
+            echo "SSM updated: ${IMAGE_TAG}"
 
-                    env.IDLE_ASG  = (env.IDLE_SLOT  == 'blue') ? "${BLUE_ASG}"  : "${GREEN_ASG}"
-                    env.LIVE_ASG  = (env.ACTIVE_SLOT == 'blue') ? "${BLUE_ASG}"  : "${GREEN_ASG}"
+            # Check if refresh already running
+            CURRENT_STATUS=\$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name ${ASG_NAME} \
+              --region ${AWS_REGION} \
+              --query 'InstanceRefreshes[0].Status' \
+              --output text 2>/dev/null || echo "None")
 
-                    echo "Active (LIVE) slot: ${env.ACTIVE_SLOT} → ASG: ${env.LIVE_ASG}"
-                    echo "Idle  (NEXT) slot: ${env.IDLE_SLOT}  → ASG: ${env.IDLE_ASG}"
-                }
-            }
-        }
+            echo "Current refresh status: \$CURRENT_STATUS"
 
-        // ── 6. SCALE UP IDLE SLOT ────────────────────────────────────────────
-        stage('Scale Up Idle Slot') {
-            steps {
-                sh """
-                    # Store the new image tag in SSM
-                    aws ssm put-parameter \
-                      --name ${SSM_IMAGE_TAG} \
-                      --value ${IMAGE_TAG} \
-                      --type String \
-                      --overwrite \
-                      --region ${AWS_REGION}
+            if [ "\$CURRENT_STATUS" = "InProgress" ] || \
+               [ "\$CURRENT_STATUS" = "Pending" ]; then
+                echo "Refresh already running. Waiting for completion..."
+                REFRESH_ID=\$(aws autoscaling describe-instance-refreshes \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --region ${AWS_REGION} \
+                  --query 'InstanceRefreshes[0].InstanceRefreshId' \
+                  --output text)
+            else
+                REFRESH_ID=\$(aws autoscaling start-instance-refresh \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --preferences '{"MinHealthyPercentage":50,"InstanceWarmup":120}' \
+                  --region ${AWS_REGION} \
+                  --query InstanceRefreshId \
+                  --output text)
 
-                    # Get current live ASG size and match it in idle slot
-                    LIVE_SIZE=\$(aws autoscaling describe-auto-scaling-groups \
-                      --auto-scaling-group-names ${env.LIVE_ASG} \
-                      --region ${AWS_REGION} \
-                      --query 'AutoScalingGroups[0].DesiredCapacity' \
-                      --output text)
+                echo "Started refresh: \$REFRESH_ID"
+            fi
 
-                    echo "Scaling idle ASG (${env.IDLE_ASG}) to \$LIVE_SIZE instances..."
+            echo "Waiting for refresh completion..."
 
-                    aws autoscaling update-auto-scaling-group \
-                      --auto-scaling-group-name ${env.IDLE_ASG} \
-                      --desired-capacity \$LIVE_SIZE \
-                      --min-size 1 \
-                      --region ${AWS_REGION}
+            for i in \$(seq 1 60); do
+                STATUS=\$(aws autoscaling describe-instance-refreshes \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --instance-refresh-ids \$REFRESH_ID \
+                  --region ${AWS_REGION} \
+                  --query 'InstanceRefreshes[0].Status' \
+                  --output text)
 
-                    echo "Waiting for idle instances to become healthy in test TG..."
+                echo "Attempt \$i/60 - Status: \$STATUS"
 
-                    # Wait up to 5 min for desired count to reach InService
-                    for i in \$(seq 1 30); do
-                        HEALTHY=\$(aws autoscaling describe-auto-scaling-groups \
-                          --auto-scaling-group-names ${env.IDLE_ASG} \
-                          --region ${AWS_REGION} \
-                          --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`] | length(@)' \
-                          --output text)
+                if [ "\$STATUS" = "Successful" ]; then
+                    echo "Refresh completed successfully"
+                    exit 0
+                fi
 
-                        echo "Attempt \$i/30 — InService: \$HEALTHY / \$LIVE_SIZE"
-
-                        if [ "\$HEALTHY" -ge "\$LIVE_SIZE" ]; then
-                            echo "Idle slot is healthy!"
-                            break
-                        fi
-
-                        if [ "\$i" -eq "30" ]; then
-                            echo "Timeout: idle slot did not become healthy"
-                            exit 1
-                        fi
-
-                        sleep 10
-                    done
-                """
-            }
-        }
-
-        // ── 7. SMOKE TEST IDLE SLOT (via test listener on port 8080) ─────────
-        stage('Smoke Test Idle Slot') {
-            steps {
-                sh """
-                    # Flip the TEST listener to point to the idle slot first
-                    IDLE_TG_ARN=\$(aws ssm get-parameter \
-                      --name /myapp/infra/tg-${env.IDLE_SLOT}-arn \
-                      --region ${AWS_REGION} \
-                      --query Parameter.Value \
-                      --output text)
-
-                    TEST_LISTENER_ARN=\$(aws ssm get-parameter \
-                      --name ${SSM_TEST_LIST} \
-                      --region ${AWS_REGION} \
-                      --query Parameter.Value \
-                      --output text)
-
-                    aws elbv2 modify-listener \
-                      --listener-arn \$TEST_LISTENER_ARN \
-                      --default-actions Type=forward,TargetGroupArn=\$IDLE_TG_ARN \
-                      --region ${AWS_REGION}
-
-                    echo "Smoke-testing new version via port 8080..."
-                    for i in \$(seq 1 12); do
-                        STATUS=\$(curl -s -o /dev/null -w "%{http_code}" \
-                            http://${ALB_DNS}:8080/check --max-time 5 || echo "000")
-                        echo "Attempt \$i: HTTP \$STATUS"
-                        if [ "\$STATUS" = "200" ]; then
-                            echo "Smoke test passed — new version is healthy."
-                            exit 0
-                        fi
-                        sleep 5
-                    done
-                    echo "ERROR: New version did not pass smoke test on port 8080"
+                if [ "\$STATUS" = "Failed" ] || \
+                   [ "\$STATUS" = "Cancelled" ]; then
+                    echo "Refresh failed: \$STATUS"
                     exit 1
-                """
-            }
-        }
+                fi
 
-        // ── 8. CUTOVER — flip production listener to idle slot ────────────────
-        stage('Cutover') {
-            steps {
-                sh """
-                    IDLE_TG_ARN=\$(aws ssm get-parameter \
-                      --name /myapp/infra/tg-${env.IDLE_SLOT}-arn \
-                      --region ${AWS_REGION} \
-                      --query Parameter.Value \
-                      --output text)
+                sleep 15
+            done
 
-                    PROD_LISTENER_ARN=\$(aws ssm get-parameter \
-                      --name ${SSM_LISTENER} \
-                      --region ${AWS_REGION} \
-                      --query Parameter.Value \
-                      --output text)
+            echo "Timeout waiting for refresh"
+            exit 1
+        """
+    }
+}
 
-                    echo "Switching PRODUCTION traffic to ${env.IDLE_SLOT} slot..."
-
-                    aws elbv2 modify-listener \
-                      --listener-arn \$PROD_LISTENER_ARN \
-                      --default-actions Type=forward,TargetGroupArn=\$IDLE_TG_ARN \
-                      --region ${AWS_REGION}
-
-                    echo "Traffic now on: ${env.IDLE_SLOT}"
-
-                    # Persist new active slot to SSM
-                    aws ssm put-parameter \
-                      --name ${SSM_ACTIVE_SLOT} \
-                      --value ${env.IDLE_SLOT} \
-                      --type String \
-                      --overwrite \
-                      --region ${AWS_REGION}
-                """
-            }
-        }
-
-        // ── 9. POST-CUTOVER VERIFY ────────────────────────────────────────────
+        // ── 6. VERIFY ────────────────────────────────────────────────────────
         stage('Verify') {
             steps {
                 sh """
-                    echo "Verifying production is serving the new version..."
+                    echo "Polling ALB health check..."
                     for i in \$(seq 1 12); do
                         STATUS=\$(curl -s -o /dev/null -w "%{http_code}" \
                             http://${ALB_DNS}/check --max-time 5 || echo "000")
                         echo "Attempt \$i: HTTP \$STATUS"
                         if [ "\$STATUS" = "200" ]; then
-                            echo "Production verified — deployment complete."
+                            echo "Deployment verified — app is live."
                             exit 0
                         fi
                         sleep 5
                     done
-                    echo "ERROR: Production health check failed after cutover"
+                    echo "ERROR: App did not become healthy after 60s"
                     exit 1
-                """
-            }
-        }
-
-        // ── 10. SCALE DOWN OLD ACTIVE SLOT ───────────────────────────────────
-        stage('Drain Old Slot') {
-            steps {
-                sh """
-                    echo "Draining old ${env.ACTIVE_SLOT} slot (${env.LIVE_ASG})..."
-
-                    # Give connections time to drain (ALB deregistration delay is 30s by default)
-                    sleep 40
-
-                    aws autoscaling update-auto-scaling-group \
-                      --auto-scaling-group-name ${env.LIVE_ASG} \
-                      --desired-capacity 0 \
-                      --min-size 0 \
-                      --region ${AWS_REGION}
-
-                    echo "Old slot scaled to 0. Ready for next deploy."
                 """
             }
         }
@@ -288,7 +177,7 @@ pipeline {
                     curl -s -X POST \$SLACK_URL \
                         -H 'Content-type: application/json' \
                         -d '{
-                            "text": ":large_green_circle: *Deploy succeeded* - ${ECR_REPO} @ ${IMAGE_TAG} → *${env.IDLE_SLOT ?: 'new'}* slot",
+                            "text": ":white_check_mark: *Deploy succeeded* — `${ECR_REPO}` @ `${IMAGE_TAG}`",
                             "attachments": [{
                                 "color": "#36a64f",
                                 "fields": [
@@ -301,66 +190,24 @@ pipeline {
                 """
             }
         }
-//test
+
         failure {
-            script {
-                // Rollback: if cutover already happened, flip listener back to the original active slot
-                sh """
-                    CURRENT_SLOT=\$(aws ssm get-parameter \
-                      --name ${SSM_ACTIVE_SLOT} \
-                      --region ${AWS_REGION} \
-                      --query Parameter.Value \
-                      --output text 2>/dev/null || echo "${env.ACTIVE_SLOT ?: 'blue'}")
+            sh """
+                # Rollback: write previous tag to SSM and trigger another refresh
+                # For now, cancel any in-progress refresh
+                aws autoscaling cancel-instance-refresh \
+                  --auto-scaling-group-name ${ASG_NAME} \
+                  --region ${AWS_REGION} || true
 
-                    ROLLBACK_SLOT=\$([ "\$CURRENT_SLOT" = "blue" ] && echo "green" || echo "blue")
-
-                    # Only flip back if we already cut over (i.e. CURRENT_SLOT changed)
-                    if [ "\$CURRENT_SLOT" != "${env.ACTIVE_SLOT ?: 'blue'}" ]; then
-                        echo "Rolling back: switching listener back to \$ROLLBACK_SLOT..."
-
-                        ROLLBACK_TG=\$(aws ssm get-parameter \
-                          --name /myapp/infra/tg-\$ROLLBACK_SLOT-arn \
-                          --region ${AWS_REGION} \
-                          --query Parameter.Value \
-                          --output text)
-
-                        PROD_LISTENER_ARN=\$(aws ssm get-parameter \
-                          --name ${SSM_LISTENER} \
-                          --region ${AWS_REGION} \
-                          --query Parameter.Value \
-                          --output text)
-
-                        aws elbv2 modify-listener \
-                          --listener-arn \$PROD_LISTENER_ARN \
-                          --default-actions Type=forward,TargetGroupArn=\$ROLLBACK_TG \
-                          --region ${AWS_REGION}
-
-                        aws ssm put-parameter \
-                          --name ${SSM_ACTIVE_SLOT} \
-                          --value \$ROLLBACK_SLOT \
-                          --type String \
-                          --overwrite \
-                          --region ${AWS_REGION}
-
-                        echo "Rolled back to \$ROLLBACK_SLOT."
-                    else
-                        echo "Cutover never happened — no listener rollback needed."
-                        # Scale idle slot back to 0 to avoid cost
-                        aws autoscaling update-auto-scaling-group \
-                          --auto-scaling-group-name ${env.IDLE_ASG ?: GREEN_ASG} \
-                          --desired-capacity 0 \
-                          --min-size 0 \
-                          --region ${AWS_REGION} || true
-                    fi
-                """
-            }
+                echo "Rollback: to roll back manually, re-run the previous successful build"
+            """
 
             withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')]) {
                 sh """
                     curl -s -X POST \$SLACK_URL \
                         -H 'Content-type: application/json' \
                         -d '{
-                            "text": ":x: *Deploy FAILED* - `${ECR_REPO}` @ `${IMAGE_TAG}` - rollback triggered",
+                            "text": ":x: *Deploy FAILED* — `${ECR_REPO}` @ `${IMAGE_TAG}` — check console for details",
                             "attachments": [{
                                 "color": "#e01e5a",
                                 "fields": [
@@ -375,6 +222,7 @@ pipeline {
         }
 
         always {
+            // Clean up local Docker images to save Jenkins disk space
             sh "docker image prune -f --filter 'until=24h' || true"
             cleanWs()
         }

@@ -1,5 +1,5 @@
-resource "aws_cloudwatch_metric_alarm" "blue_scale_out" {
-  alarm_name          = "${var.app_name}-blue-cpu-high"
+resource "aws_cloudwatch_metric_alarm" "scale_out" {
+  alarm_name          = "${var.app_name}-cpu-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
@@ -7,16 +7,16 @@ resource "aws_cloudwatch_metric_alarm" "blue_scale_out" {
   period              = 60
   statistic           = "Average"
   threshold           = 70
-  alarm_description   = "Scale out blue when CPU > 70% for 2 mins"
-  alarm_actions       = [aws_autoscaling_policy.blue_scale_out.arn]
+  alarm_description   = "Scale out when CPU > 70% for 2 mins"
+  alarm_actions       = [aws_autoscaling_policy.scale_out.arn]
 
   dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.blue.name
+    AutoScalingGroupName = aws_autoscaling_group.app.name
   }
 }
 
-resource "aws_cloudwatch_metric_alarm" "blue_scale_in" {
-  alarm_name          = "${var.app_name}-blue-cpu-low"
+resource "aws_cloudwatch_metric_alarm" "scale_in" {
+  alarm_name          = "${var.app_name}-cpu-low"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 5
   metric_name         = "CPUUtilization"
@@ -24,45 +24,11 @@ resource "aws_cloudwatch_metric_alarm" "blue_scale_in" {
   period              = 60
   statistic           = "Average"
   threshold           = 30
-  alarm_description   = "Scale in blue when CPU < 30% for 5 mins"
-  alarm_actions       = [aws_autoscaling_policy.blue_scale_in.arn]
+  alarm_description   = "Scale in when CPU < 30% for 5 mins"
+  alarm_actions       = [aws_autoscaling_policy.scale_in.arn]
 
   dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.blue.name
-  }
-}
-
-resource "aws_cloudwatch_metric_alarm" "green_scale_out" {
-  alarm_name          = "${var.app_name}-green-cpu-high"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 2
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = 60
-  statistic           = "Average"
-  threshold           = 70
-  alarm_description   = "Scale out green when CPU > 70% for 2 mins"
-  alarm_actions       = [aws_autoscaling_policy.green_scale_out.arn]
-
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.green.name
-  }
-}
-
-resource "aws_cloudwatch_metric_alarm" "green_scale_in" {
-  alarm_name          = "${var.app_name}-green-cpu-low"
-  comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 5
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = 60
-  statistic           = "Average"
-  threshold           = 30
-  alarm_description   = "Scale in green when CPU < 30% for 5 mins"
-  alarm_actions       = [aws_autoscaling_policy.green_scale_in.arn]
-
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.green.name
+    AutoScalingGroupName = aws_autoscaling_group.app.name
   }
 }
 
