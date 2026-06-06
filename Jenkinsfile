@@ -193,34 +193,77 @@ pipeline {
         }
 
         failure {
-            sh """
-                # Rollback: write previous tag to SSM and trigger another refresh
-                # For now, cancel any in-progress refresh
-                aws autoscaling cancel-instance-refresh \
-                  --auto-scaling-group-name ${ASG_NAME} \
-                  --region ${AWS_REGION} || true
+script {
+def buildLogs = currentBuild.rawBuild.getLog(80).join('\n')
+.replace("\", "\\")
+.replace(""", "\"")
+.replace("\n", "\n")
 
-                echo "Rollback: to roll back manually, re-run the previous successful build"
-            """
+```
+    withCredentials([
+        string(credentialsId: 'llm-api-key', variable: 'LLM_API_KEY')
+    ]) {
 
-            withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')]) {
-                sh """
-                    curl -s -X POST \$SLACK_URL \
-                        -H 'Content-type: application/json' \
-                        -d '{
-                            "text": ":x: *Deploy FAILED* — `${ECR_REPO}` @ `${IMAGE_TAG}` — check console for details",
-                            "attachments": [{
-                                "color": "#e01e5a",
-                                "fields": [
-                                    {"title": "Branch",   "value": "${env.BRANCH_NAME}",  "short": true},
-                                    {"title": "Build",    "value": "#${env.BUILD_NUMBER}", "short": true},
-                                    {"title": "Logs",     "value": "${env.BUILD_URL}console", "short": false}
-                                ]
-                            }]
-                        }'
-                """
-            }
-        }
+        env.AI_ANALYSIS = sh(
+            script: """
+                curl -s https://api.groq.com/openai/v1/chat/completions \
+                  -H "Authorization: Bearer \$LLM_API_KEY" \
+                  -H "Content-Type: application/json" \
+                  -d '{
+                    "model":"llama-3.3-70b-versatile",
+                    "messages":[
+                      {
+                        "role":"system",
+                        "content":"You are a senior DevOps engineer. Analyze Jenkins CI/CD failures. Return only: Root Cause, Confidence, Fix."
+                      },
+                      {
+                        "role":"user",
+                        "content":"Analyze this Jenkins failure:\\n\\n${buildLogs}"
+                      }
+                    ],
+                    "temperature":0.1
+                  }' | jq -r '.choices[0].message.content'
+            """,
+            returnStdout: true
+        ).trim()
+    }
+}
+
+sh """
+    aws autoscaling cancel-instance-refresh \
+      --auto-scaling-group-name ${ASG_NAME} \
+      --region ${AWS_REGION} || true
+
+    echo "Rollback: to roll back manually, re-run the previous successful build"
+"""
+
+withCredentials([
+    string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')
+]) {
+    sh """
+        curl -s -X POST \$SLACK_URL \
+          -H 'Content-type: application/json' \
+          -d '{
+            "text":"❌ Build Failed",
+            "attachments":[
+              {
+                "color":"#e01e5a",
+                "fields":[
+                  {"title":"Repository","value":"${ECR_REPO}","short":true},
+                  {"title":"Image","value":"${IMAGE_TAG}","short":true},
+                  {"title":"Build","value":"#${env.BUILD_NUMBER}","short":true},
+                  {"title":"Logs","value":"${env.BUILD_URL}console","short":false},
+                  {"title":"AI Analysis","value":"${env.AI_ANALYSIS}","short":false}
+                ]
+              }
+            ]
+          }'
+    """
+}
+```
+
+}
+
 
         always {
             // Clean up local Docker images to save Jenkins disk space
