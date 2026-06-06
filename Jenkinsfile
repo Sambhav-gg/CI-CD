@@ -260,76 +260,89 @@ pipeline {
 // }
 failure {
     script {
+        def buildLogs = currentBuild.rawBuild.getLog(80).join('\n').take(6000)
 
         withCredentials([
             string(credentialsId: 'llm-api-key', variable: 'LLM_API_KEY')
         ]) {
+            // Write logs to a temp file so jq can safely encode them into JSON
+            // without any shell quoting issues
+            writeFile file: '/tmp/build-logs.txt', text: buildLogs
 
             env.AI_ANALYSIS = sh(
                 script: '''
-                    curl -s https://api.groq.com/openai/v1/chat/completions \
-                      -H "Authorization: Bearer $LLM_API_KEY" \
-                      -H "Content-Type: application/json" \
-                      -d '{
-                        "model":"llama-3.3-70b-versatile",
-                        "messages":[
+                    PAYLOAD=$(jq -n \
+                      --rawfile logs /tmp/build-logs.txt \
+                      '{
+                        model: "llama-3.3-70b-versatile",
+                        temperature: 0.1,
+                        messages: [
                           {
-                            "role":"system",
-                            "content":"You are a senior DevOps engineer. Return only Root Cause, Confidence, and Fix."
+                            role: "system",
+                            content: "You are a senior DevOps engineer. Analyze Jenkins CI/CD failures. Return ONLY: Root Cause, Confidence, Fix, and Commands."
                           },
                           {
-                            "role":"user",
-                            "content":"Docker build failed because node:999-alpine image was not found. Give root cause and fix."
+                            role: "user",
+                            content: ("Analyze this Jenkins failure:\n\n" + $logs)
                           }
-                        ],
-                        "temperature":0.1
-                      }' | jq -r '.choices[0].message.content'
+                        ]
+                      }')
+
+                    curl -s --max-time 30 \
+                      https://api.groq.com/openai/v1/chat/completions \
+                      -H "Authorization: Bearer $LLM_API_KEY" \
+                      -H "Content-Type: application/json" \
+                      -d "$PAYLOAD" \
+                    | jq -r '.choices[0].message.content // "AI analysis unavailable"'
                 ''',
                 returnStdout: true
             ).trim()
-
-            env.AI_ANALYSIS = env.AI_ANALYSIS
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-
-            echo "AI ANALYSIS: ${env.AI_ANALYSIS}"
         }
+
+        echo "AI ANALYSIS: ${env.AI_ANALYSIS}"
+
+        // Write AI analysis to file so jq can safely encode it for Slack
+        writeFile file: '/tmp/ai-analysis.txt', text: env.AI_ANALYSIS
 
         sh """
             aws autoscaling cancel-instance-refresh \
               --auto-scaling-group-name ${ASG_NAME} \
               --region ${AWS_REGION} || true
-
-            echo "Rollback: to roll back manually, re-run the previous successful build"
         """
 
         withCredentials([
             string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')
         ]) {
             sh """
+                SLACK_PAYLOAD=\$(jq -n \
+                  --rawfile ai /tmp/ai-analysis.txt \
+                  --arg repo    '${ECR_REPO}' \
+                  --arg tag     '${IMAGE_TAG}' \
+                  --arg build   '#${env.BUILD_NUMBER}' \
+                  --arg logs    '${env.BUILD_URL}console' \
+                  '{
+                    text: "❌ Build Failed",
+                    attachments: [{
+                      color: "#e01e5a",
+                      fields: [
+                        {title: "Repository",   value: \$repo,  short: true},
+                        {title: "Image",         value: \$tag,   short: true},
+                        {title: "Build",         value: \$build, short: true},
+                        {title: "Logs",          value: \$logs,  short: false},
+                        {title: "AI Analysis",   value: \$ai,    short: false}
+                      ]
+                    }]
+                  }')
+
                 curl -s -X POST \$SLACK_URL \
                   -H 'Content-type: application/json' \
-                  -d '{
-                    "text":"❌ Build Failed",
-                    "attachments":[
-                      {
-                        "color":"#e01e5a",
-                        "fields":[
-                          {"title":"Repository","value":"${ECR_REPO}","short":true},
-                          {"title":"Image","value":"${IMAGE_TAG}","short":true},
-                          {"title":"Build","value":"#${env.BUILD_NUMBER}","short":true},
-                          {"title":"Logs","value":"${env.BUILD_URL}console","short":false},
-                          {"title":"AI Analysis","value":"${env.AI_ANALYSIS}","short":false}
-                        ]
-                      }
-                    ]
-                  }'
+                  -d "\$SLACK_PAYLOAD"
             """
         }
+
+        sh "rm -f /tmp/build-logs.txt /tmp/ai-analysis.txt"
     }
 }
-
 
 
 
