@@ -288,7 +288,7 @@ pipeline {
                     curl -s -X POST \$SLACK_URL \
                         -H 'Content-type: application/json' \
                         -d '{
-                            "text": ":large_green_circle: *Deploy succeeded* — \`${ECR_REPO}\` @ \`${IMAGE_TAG}\` → *${env.IDLE_SLOT ?: 'new'}* slot",
+                            "text": ":large_green_circle: *Deploy succeeded* - ${ECR_REPO} @ ${IMAGE_TAG} → *${env.IDLE_SLOT ?: 'new'}* slot",
                             "attachments": [{
                                 "color": "#36a64f",
                                 "fields": [
@@ -301,7 +301,7 @@ pipeline {
                 """
             }
         }
-
+//test
         failure {
             script {
                 // Rollback: if cutover already happened, flip listener back to the original active slot

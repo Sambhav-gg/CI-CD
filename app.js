@@ -35,6 +35,7 @@ app.get('/api/status', (req, res) => {
             node_version: process.version,
             environment: process.env.NODE_ENV || 'development',
         },
+        //check
         meta: {
             version: '1.0.0',
             deployed_at: new Date().toISOString(),
