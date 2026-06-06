@@ -196,7 +196,6 @@ pipeline {
 script {
 def buildLogs = currentBuild.rawBuild.getLog(50).join('\n')
 
-```
     withCredentials([
         string(credentialsId: 'llm-api-key', variable: 'LLM_API_KEY')
     ]) {
