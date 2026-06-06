@@ -337,4 +337,3 @@ failure {
             cleanWs()
         }
     }
-}
