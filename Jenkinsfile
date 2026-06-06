@@ -194,10 +194,7 @@ pipeline {
 
         failure {
 script {
-def buildLogs = currentBuild.rawBuild.getLog(80).join('\n')
-.replace("\", "\\")
-.replace(""", "\"")
-.replace("\n", "\n")
+def buildLogs = currentBuild.rawBuild.getLog(50).join('\n')
 
 ```
     withCredentials([
@@ -214,11 +211,11 @@ def buildLogs = currentBuild.rawBuild.getLog(80).join('\n')
                     "messages":[
                       {
                         "role":"system",
-                        "content":"You are a senior DevOps engineer. Analyze Jenkins CI/CD failures. Return only: Root Cause, Confidence, Fix."
+                        "content":"You are a senior DevOps engineer. Analyze Jenkins CI/CD failures. Return only Root Cause, Confidence, and Fix."
                       },
                       {
                         "role":"user",
-                        "content":"Analyze this Jenkins failure:\\n\\n${buildLogs}"
+                        "content":"Analyze this Jenkins failure: ${buildLogs.take(3000)}"
                       }
                     ],
                     "temperature":0.1
@@ -227,42 +224,43 @@ def buildLogs = currentBuild.rawBuild.getLog(80).join('\n')
             returnStdout: true
         ).trim()
     }
-}
 
-sh """
-    aws autoscaling cancel-instance-refresh \
-      --auto-scaling-group-name ${ASG_NAME} \
-      --region ${AWS_REGION} || true
-
-    echo "Rollback: to roll back manually, re-run the previous successful build"
-"""
-
-withCredentials([
-    string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')
-]) {
     sh """
-        curl -s -X POST \$SLACK_URL \
-          -H 'Content-type: application/json' \
-          -d '{
-            "text":"❌ Build Failed",
-            "attachments":[
-              {
-                "color":"#e01e5a",
-                "fields":[
-                  {"title":"Repository","value":"${ECR_REPO}","short":true},
-                  {"title":"Image","value":"${IMAGE_TAG}","short":true},
-                  {"title":"Build","value":"#${env.BUILD_NUMBER}","short":true},
-                  {"title":"Logs","value":"${env.BUILD_URL}console","short":false},
-                  {"title":"AI Analysis","value":"${env.AI_ANALYSIS}","short":false}
-                ]
-              }
-            ]
-          }'
+        aws autoscaling cancel-instance-refresh \
+          --auto-scaling-group-name ${ASG_NAME} \
+          --region ${AWS_REGION} || true
+
+        echo "Rollback: to roll back manually, re-run the previous successful build"
     """
+
+    withCredentials([
+        string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')
+    ]) {
+        sh """
+            curl -s -X POST \$SLACK_URL \
+              -H 'Content-type: application/json' \
+              -d '{
+                "text":"❌ Build Failed",
+                "attachments":[
+                  {
+                    "color":"#e01e5a",
+                    "fields":[
+                      {"title":"Repository","value":"${ECR_REPO}","short":true},
+                      {"title":"Image","value":"${IMAGE_TAG}","short":true},
+                      {"title":"Build","value":"#${env.BUILD_NUMBER}","short":true},
+                      {"title":"Logs","value":"${env.BUILD_URL}console","short":false},
+                      {"title":"AI Analysis","value":"${env.AI_ANALYSIS ?: "AI analysis unavailable"}","short":false}
+                    ]
+                  }
+                ]
+              }'
+        """
+    }
 }
 ```
 
 }
+
 
 
         always {
