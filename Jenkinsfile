@@ -213,8 +213,10 @@ def buildLogs = currentBuild.rawBuild.getLog(50).join('\n')
                         "content":"You are a senior DevOps engineer. Analyze Jenkins CI/CD failures. Return only Root Cause, Confidence, and Fix."
                       },
                       {
+                        // "role":"user",
+                        // "content":"Analyze this Jenkins failure: ${buildLogs.take(3000)}"
                         "role":"user",
-                        "content":"Analyze this Jenkins failure: ${buildLogs.take(3000)}"
+                        "content":"Docker build failed because node:999-alpine image was not found. Give root cause and fix."
                       }
                     ],
                     "temperature":0.1
