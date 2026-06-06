@@ -10,6 +10,7 @@ pipeline {
         IMAGE_TAG       = "${env.GIT_COMMIT?.take(7) ?: 'latest'}"
         FULL_IMAGE      = "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
     }
+    //test
 
     options {
         timeout(time: 20, unit: 'MINUTES')
