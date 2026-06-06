@@ -360,7 +360,7 @@ pipeline {
                     curl -s -X POST \$SLACK_URL \
                         -H 'Content-type: application/json' \
                         -d '{
-                            "text": ":x: *Deploy FAILED* — \`${ECR_REPO}\` @ \`${IMAGE_TAG}\` — rollback triggered",
+                            "text": ":x: *Deploy FAILED* - `${ECR_REPO}` @ `${IMAGE_TAG}` - rollback triggered",
                             "attachments": [{
                                 "color": "#e01e5a",
                                 "fields": [
