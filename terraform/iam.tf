@@ -3,15 +3,13 @@ resource "aws_iam_role" "jenkins" {
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
       }
-    ]
+    }]
   })
 
   tags = {
@@ -19,14 +17,47 @@ resource "aws_iam_role" "jenkins" {
   }
 }
 
+# ECR Push/Pull
 resource "aws_iam_role_policy_attachment" "jenkins_ecr" {
   role       = aws_iam_role.jenkins.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess"
 }
 
-resource "aws_iam_role_policy_attachment" "jenkins_ssm" {
+# Auto Scaling (blue-green ASGs)
+resource "aws_iam_role_policy_attachment" "jenkins_autoscaling" {
   role       = aws_iam_role.jenkins.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"
+  policy_arn = "arn:aws:iam::aws:policy/AutoScalingFullAccess"
+}
+
+# ALB listener switching
+resource "aws_iam_role_policy_attachment" "jenkins_elb" {
+  role       = aws_iam_role.jenkins.name
+  policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess"
+}
+
+# Custom SSM policy (read + write)
+resource "aws_iam_policy" "jenkins_ssm_rw" {
+  name = "${var.app_name}-jenkins-ssm-rw"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:PutParameter"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "jenkins_ssm_rw" {
+  role       = aws_iam_role.jenkins.name
+  policy_arn = aws_iam_policy.jenkins_ssm_rw.arn
 }
 
 resource "aws_iam_instance_profile" "jenkins" {
