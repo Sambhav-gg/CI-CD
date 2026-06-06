@@ -14,7 +14,7 @@ app.get('/api/status', (req, res) => {
     const uptime = Math.floor((Date.now() - START_TIME) / 1000);
     res.json({
         services: [
-            { name: 'API Server', status: 'operational' },
+            { name: 'API Server', status: 'working' },
             { name: 'Database', status: 'operational' },
             { name: 'Cache', status: 'operational' },
             { name: 'Jenkins CI/CD', status: 'operational' },
