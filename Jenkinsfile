@@ -256,7 +256,6 @@ def buildLogs = currentBuild.rawBuild.getLog(50).join('\n')
         """
     }
 }
-```
 
 }
 
