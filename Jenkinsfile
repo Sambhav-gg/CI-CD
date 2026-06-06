@@ -265,7 +265,7 @@ failure {
             string(credentialsId: 'llm-api-key', variable: 'LLM_API_KEY')
         ]) {
 
-            def groqResponse = sh(
+            env.AI_ANALYSIS = sh(
                 script: '''
                     curl -s https://api.groq.com/openai/v1/chat/completions \
                       -H "Authorization: Bearer $LLM_API_KEY" \
@@ -275,7 +275,7 @@ failure {
                         "messages":[
                           {
                             "role":"system",
-                            "content":"You are a senior DevOps engineer."
+                            "content":"You are a senior DevOps engineer. Return only Root Cause, Confidence, and Fix."
                           },
                           {
                             "role":"user",
@@ -283,14 +283,17 @@ failure {
                           }
                         ],
                         "temperature":0.1
-                      }'
+                      }' | jq -r '.choices[0].message.content'
                 ''',
                 returnStdout: true
             ).trim()
 
-            echo "GROQ RESPONSE: ${groqResponse}"
+            env.AI_ANALYSIS = env.AI_ANALYSIS
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
 
-            env.AI_ANALYSIS = groqResponse
+            echo "AI ANALYSIS: ${env.AI_ANALYSIS}"
         }
 
         sh """
@@ -317,7 +320,7 @@ failure {
                           {"title":"Image","value":"${IMAGE_TAG}","short":true},
                           {"title":"Build","value":"#${env.BUILD_NUMBER}","short":true},
                           {"title":"Logs","value":"${env.BUILD_URL}console","short":false},
-                          {"title":"AI Analysis","value":"Groq response printed in Jenkins console","short":false}
+                          {"title":"AI Analysis","value":"${env.AI_ANALYSIS}","short":false}
                         ]
                       }
                     ]
