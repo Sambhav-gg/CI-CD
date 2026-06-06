@@ -20,3 +20,28 @@
    value       = aws_sns_topic.downtime_alerts.arn
    description = "SNS topic ARN — use this in Lambda"
  }
+# ── Blue-green additions ───────────────────────────────────────────────────────
+output "blue_asg_name" {
+  description = "Blue ASG name"
+  value       = aws_autoscaling_group.blue.name
+}
+
+output "green_asg_name" {
+  description = "Green ASG name"
+  value       = aws_autoscaling_group.green.name
+}
+
+output "blue_tg_arn" {
+  description = "Blue target group ARN"
+  value       = aws_lb_target_group.blue.arn
+}
+
+output "green_tg_arn" {
+  description = "Green target group ARN"
+  value       = aws_lb_target_group.green.arn
+}
+
+output "test_listener_arn" {
+  description = "Port 8080 test listener ARN"
+  value       = aws_lb_listener.test.arn
+}
