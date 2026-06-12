@@ -7,7 +7,7 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 # ─── Stage 2: Production ─────────────────────────────────────
-FROM node:18-alpine AS production.
+FROM node:18-alpine AS production
 # FROM node:999-alpine AS production
 WORKDIR /app
 
