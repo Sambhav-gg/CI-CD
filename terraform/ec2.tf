@@ -9,21 +9,29 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get upgrade -y
 
-# ── Java + Jenkins ────────────────────────────────────────────────────────────
-apt-get install -y fontconfig openjdk-17-jre wget gnupg
+sudo apt install -y fontconfig openjdk-21-jre
 
-wget -O /usr/share/keyrings/jenkins-keyring.asc \
-  https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+# Create keyrings directory (safe for fresh Ubuntu)
+sudo mkdir -p /etc/apt/keyrings
 
-echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
-  https://pkg.jenkins.io/debian-stable binary/" \
-  > /etc/apt/sources.list.d/jenkins.list
+# Add Jenkins GPG key (new official key)
+sudo wget -O /etc/apt/keyrings/jenkins-keyring.asc \
+  https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
 
-apt-get update -y
-apt-get install -y jenkins
-systemctl enable jenkins
-systemctl start jenkins
+# Add Jenkins repository
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] \
+https://pkg.jenkins.io/debian-stable binary/" | sudo tee \
+/etc/apt/sources.list.d/jenkins.list > /dev/null
 
+# Update package list
+sudo apt update -y
+
+# Install Jenkins
+sudo apt install -y jenkins
+
+# Enable and start Jenkins
+sudo systemctl enable jenkins
+sudo systemctl start jenkins
 # ── Docker ────────────────────────────────────────────────────────────────────
 apt-get install -y ca-certificates curl gnupg lsb-release
 install -m 0755 -d /etc/apt/keyrings
