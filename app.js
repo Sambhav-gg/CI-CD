@@ -9,7 +9,7 @@ app.use(express.static('public'));
 app.get('/check', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
-//test1
+//test12
 app.get('/api/status', (req, res) => {
     const uptime = Math.floor((Date.now() - START_TIME) / 1000);
     res.json({
