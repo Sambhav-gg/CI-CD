@@ -6,7 +6,7 @@ pipeline {
         ECR_REGISTRY    = '016605188495.dkr.ecr.eu-north-1.amazonaws.com'
         ECR_REPO        = 'my-app'
         ASG_NAME        = 'my-app-asg'
-        ALB_DNS         = 'my-app-alb-555850501.eu-north-1.elb.amazonaws.com'
+        ALB_DNS         = 'my-app-alb-1320815877.eu-north-1.elb.amazonaws.com'
         IMAGE_TAG       = "${env.GIT_COMMIT?.take(7) ?: 'latest'}"
         FULL_IMAGE      = "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
     }
