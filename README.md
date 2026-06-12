@@ -1,313 +1,317 @@
-# 🚀 Enterprise CI/CD Infrastructure on AWS with AI-Powered Failure Analysis
+# 🚀 Production CI/CD Pipeline on AWS — with AI Failure Diagnostics
 
-> A production-grade, highly resilient CI/CD pipeline and AWS cloud infrastructure built entirely from scratch. Every commit to GitHub automatically triggers an automated test, containerization, and rolling deployment to an auto-scaling cluster with CloudWatch telemetry, Lambda uptime monitoring, and **Groq Llama-3.3 AI-driven pipeline failure analysis** reporting directly to Slack.
+> **Every `git push` automatically builds, tests, containerizes, and deploys your app to a self-healing AWS cluster — with zero downtime. If something breaks, an AI agent diagnoses the failure and posts the fix to Slack.**
 
-![Status](https://img.shields.io/badge/status-live-brightgreen) ![AWS](https://img.shields.io/badge/cloud-AWS-FF9900?logo=amazonaws) ![Docker](https://img.shields.io/badge/container-Docker-2496ED?logo=docker) ![Terraform](https://img.shields.io/badge/iac-Terraform-7B42BC?logo=terraform) ![Jenkins](https://img.shields.io/badge/ci/cd-Jenkins-D24939?logo=jenkins) ![Groq AI](https://img.shields.io/badge/ai-Groq%20Llama%203.3-orange) ![Node.js](https://img.shields.io/badge/runtime-Node.js-339933?logo=nodedotjs)
-
----
-
-## 📌 What This Project Is
-
-This repository demonstrates a complete, secure, and production-grade AWS infrastructure and deployment pipeline provisioned entirely as code. Unlike simple single-instance deployments, this architecture implements enterprise-level patterns:
-
-- **Infrastructure as Code**: The entire AWS stack is defined and versioned via **Terraform**.
-- **Containerized Workloads**: Multi-stage **Docker** builds guarantee slim, secure runtime images running as non-root users.
-- **GitOps Rolling Deploys**: Deployments utilize **AWS SSM Parameter Store** and **AWS Auto Scaling Group (ASG) Instance Refreshes** to achieve zero-downtime rolling updates.
-- **AI-Powered Diagnostics**: Pipeline failures trigger a custom DevOps AI agent (powered by **Groq Llama 3.3**) to diagnose build logs, detect root causes, and post fixes to **Slack**.
-- **Active Telemetry**: A **CloudWatch Agent** streams Nginx access/error logs and hardware metrics from instances.
-- **Continuous Health Checks**: Serverless **AWS Lambda** pingers monitor availability and trigger **SNS Email Alerts** in the event of downtime.
+[![Status](https://img.shields.io/badge/status-live-brightgreen)](#)
+[![AWS](https://img.shields.io/badge/AWS-EC2%20·%20ALB%20·%20ASG%20·%20ECR%20·%20Lambda-FF9900?logo=amazonaws)](#-infrastructure--tech-stack)
+[![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform)](#-infrastructure--tech-stack)
+[![Docker](https://img.shields.io/badge/Container-Docker-2496ED?logo=docker)](#-infrastructure--tech-stack)
+[![Jenkins](https://img.shields.io/badge/CI%2FCD-Jenkins-D24939?logo=jenkins)](#-the-cicd-pipeline)
+[![Groq AI](https://img.shields.io/badge/AI-Groq%20Llama%203.3-orange)](#-ai-driven-failure-analysis)
+[![Node.js](https://img.shields.io/badge/Runtime-Node.js%2018-339933?logo=nodedotjs)](#)
 
 ---
 
-## 🏗️ Architecture Design
+## Why This Project Exists
+
+Most CI/CD tutorials stop at "push to EC2." This project goes further — it solves the problems you actually face in production:
+
+| Problem | How This Project Solves It |
+| :--- | :--- |
+| Deployments cause downtime | ASG Instance Refresh replaces instances one-by-one behind an ALB |
+| "It broke but I don't know why" | Groq Llama 3.3 reads the build logs and posts root cause + fix to Slack |
+| Infrastructure drifts from reality | Every AWS resource is Terraform-managed and version-controlled |
+| No visibility into app health | Lambda pings the app every 5 min; SNS emails you if it's down |
+| Containers run as root | Multi-stage Docker build runs as `appuser` with a built-in healthcheck |
+| Logs vanish when instances cycle | CloudWatch Agent streams Nginx + system metrics before termination |
+
+---
+
+## Architecture
 
 ```
-                                  AWS Cloud (eu-north-1 VPC)
-   ┌────────────────────────────────────────────────────────────────────────────────────────┐
-   │                                                                                        │
-   │  ┌────────────────┐           (1) Write Tag       ┌─────────────────────────────────┐  │
-   │  │  Jenkins EC2   │──────────────────────────────►│    SSM Parameter Store          │  │
-   │  │ c7i-flex.large │                               │     /myapp/deploy/image-tag     │  │
-   │  │   Port 8080    │───────────┐                   └────────────────┬────────────────┘  │
-   │  └───────┬────────┘           │ (2) Trigger                        │ (Pulls target  │  │
-   │          │                    │     Instance Refresh               │  image tag)    │  │
-   │      (Builds &                ▼                                    ▼                │  │
-   │      Pushes Tag)     ┌────────────────┐           ┌─────────────────────────────────┐  │
-   │          │           │   Target Group │           │  Auto Scaling Group (ASG)       │  │
-   │          ▼           └────────▲───────┘           │  - Scale: 1 Min / 3 Max         │  │
-   │  ┌────────────────┐           │                   │  - Instance Type: t3.micro      │  │
-   │  │    AWS ECR     │◄──────────┼─(Pulls image)─────│  - Services: Docker + Nginx     │  │
-   │  └────────────────┘           │                   └────────────────┬────────────────┘  │
-   │                               │ (Routes Port 80)                   │                   │  │
-   │  ┌────────────────────────────────────────────┐                    │                   │  │
-   │  │       Application Load Balancer (ALB)      │◄───────────────────┘                   │  │
-   │  └────────────────────▲───────────────────────┘                                        │  │
-   │                       │ (Inbound Port 80)                                              │  │
-   └───────────────────────┼────────────────────────────────────────────────────────────────┘
-                           │
-                      HTTP Traffic
-                           │
-                      ┌────┴────┐
-                      │  Users  │
-                      └─────────┘
-```
-
-### Serverless Monitoring & Alerting Flow
-```
- ┌──────────────────────┐      rate(5 mins)      ┌───────────────────────────┐
- │  EventBridge Trigger │───────────────────────►│  Uptime Pinger (Lambda)   │
- └──────────────────────┘                        └─────────────┬─────────────┘
-                                                               │ (GET /check)
-                                                               ▼
- ┌──────────────────────┐    Publish on Error    ┌───────────────────────────┐
- │    SNS Alerts        │◄───────────────────────│  Application Load Balancer│
- │ (Downtime Emails)    │                        │          (ALB)            │
- └──────────────────────┘                        └───────────────────────────┘
+                                    AWS Cloud (eu-north-1)
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │                                                                              │
+  │   GitHub Push                                                                │
+  │       │                                                                      │
+  │       ▼                                                                      │
+  │   ┌──────────┐    Build & Push     ┌─────────┐                               │
+  │   │ Jenkins  │ ──────────────────► │   ECR   │  (Docker images)              │
+  │   │ EC2      │                     └────┬────┘                               │
+  │   │ c7i-flex │──┐                       │                                    │
+  │   └──────────┘  │                       │ docker pull                        │
+  │                 │ Write tag              ▼                                    │
+  │                 ▼                  ┌───────────────┐                          │
+  │          ┌───────────┐            │  Auto Scaling  │  1 min / 3 max          │
+  │          │    SSM    │ ◄─ read ── │    Group       │  (t3.micro)             │
+  │          │ /image-tag│            │  Docker+Nginx  │                          │
+  │          └───────────┘            └───────┬───────┘                          │
+  │                                           │                                  │
+  │   ┌─────────────┐     EventBridge   ┌─────▼─────┐                           │
+  │   │   Lambda    │ ─── GET /check ──►│    ALB    │◄──── HTTP ──── Users      │
+  │   │  (5 min)    │                   └───────────┘                            │
+  │   └──────┬──────┘                                                            │
+  │          │ on failure                                                         │
+  │          ▼                                                                   │
+  │   ┌─────────────┐                                                            │
+  │   │  SNS Email  │  Downtime alert                                            │
+  │   └─────────────┘                                                            │
+  └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🔄 The CI/CD Pipeline
+## The CI/CD Pipeline
+
+Six stages run automatically on every push to `main`:
 
 ```
-Commit Pushed to main
-        │
-        ▼
- ┌─────────────┐
- │  Checkout   │  Clones the GitHub repository and checks out the commit.
- └──────┬──────┘
-        │
-        ▼
- ┌─────────────┐
- │Build & Test │  Runs clean dependency install (`npm ci`) and runs smoke test on Express /check.
- └──────┬──────┘
-        │
-        ▼
- ┌─────────────┐
- │Docker Build │  Builds multi-stage Docker image, tagging it with ECR URI and Commit SHA.
- └──────┬──────┘
-        │
-        ▼
- ┌─────────────┐
- │  ECR Push   │  Authenticates with AWS and pushes tags (`latest` & `short-SHA`) to ECR.
- └──────┬──────┘
-        │
-        ▼
- ┌─────────────┐
- │ ASG Refresh │  Updates SSM tag parameter and triggers ASG rolling instance refresh.
- └──────┬──────┘
-        │
-        ▼
- ┌─────────────┐
- │Verify Deploy│  Polls the ALB public DNS endpoint at `/check` to confirm startup.
- └──────┬──────┘
-        │
-        ├───────────────────────────────┐
-        ▼ (Success)                     ▼ (Failure)
- ┌─────────────┐                 ┌───────────────┐
- │ Slack Alert │                 │  Cancel ASG   │  Cancels rolling refresh to avoid staging bad builds.
- └─────────────┘                 └──────┬────────┘
-                                        │
-                                        ▼
-                                 ┌───────────────┐
-                                 │ Groq AI Logs  │  Sends logs to Llama-3.3 on Groq to find root cause.
-                                 │  Diagnostics  │  
-                                 └──────┬────────┘
-                                        │
-                                        ▼
-                                 ┌───────────────┐
-                                 │ Slack Failure │  Sends error report + AI-recommended fix to Slack.
-                                 │  Notification │
-                                 └───────────────┘
+ ① Checkout  ──►  ② Build & Test  ──►  ③ Docker Build  ──►  ④ ECR Push  ──►  ⑤ Deploy  ──►  ⑥ Verify
+                     npm ci +              Multi-stage         SHA + latest      SSM update     Poll ALB
+                     smoke test            non-root build      tags pushed       + ASG refresh   /check
 ```
+
+**On success** → Slack notification with build details and app URL.
+
+**On failure** →
+1. Cancel the ASG Instance Refresh (stop bad code from spreading)
+2. Extract last 80 lines of build logs
+3. Send logs to **Groq Llama 3.3** for root cause analysis
+4. Post the AI diagnosis + recommended fix to **Slack**
+
+> [!NOTE]
+> The AI payload is constructed via `jq` to prevent shell quoting issues with log content — a real-world problem most tutorials skip.
 
 ---
 
-## 🛠️ Infrastructure & Tech Stack
+## AI-Driven Failure Analysis
 
-### Cloud & Orchestration
-| Layer | Technology | Implementation Detail |
+When a pipeline stage fails, the `post { failure { } }` block triggers an automated DevOps AI agent:
+
+```
+ Jenkins Logs (last 80 lines)
+        │
+        ▼
+ jq constructs safe JSON payload
+        │
+        ▼
+ Groq API  (llama-3.3-70b-versatile, temp=0.1)
+        │
+        ▼
+ Structured diagnosis:
+   • Root Cause — exact line or dependency that broke
+   • Confidence — how certain the model is
+   • Fix — code or config change to resolve it
+   • Commands — terminal commands to apply the fix
+        │
+        ▼
+ Slack message with full details
+```
+
+The low temperature (0.1) ensures deterministic, actionable output rather than creative suggestions.
+
+---
+
+## Infrastructure & Tech Stack
+
+| Layer | Service | Details |
 | :--- | :--- | :--- |
-| **Compute (CI/CD)** | AWS EC2 (`c7i-flex.large`) | Houses the Jenkins runner, Docker engine, and local workspace. |
-| **Compute (App)** | AWS ASG (`t3.micro`) | Auto-scaling instances hosting Docker daemon + Nginx reverse proxy. |
-| **Load Balancing** | AWS ALB | Dispatches external traffic across available instances in multiple AZs. |
-| **Container Registry** | AWS ECR | Secure image repository with automatic 5-image lifecycle pruning. |
-| **Configuration Store**| AWS SSM | Stores dynamic runtime environment flags and target docker tags. |
-| **Telemetry** | CloudWatch Agent | Streams local nginx and hardware diagnostics back to CloudWatch logs. |
-| **Provisioning** | Terraform | Code-driven VPC, IAM roles, security credentials, and instances. |
-
-### Monitoring & Uptime
-* **AWS Lambda**: Nodejs 18 runtime scheduled via **EventBridge** (triggered every 5 minutes).
-* **AWS SNS**: Publishes email alerts immediately if the Lambda pinger receives a non-200 response or error.
-
-### Core Application
-* **Runtime**: Node.js 18 + Express.
-* **Server Front**: Nginx reverse proxy (listening on 80, proxying back to container on 3000) configuration includes rate limiting placeholders, security headers (nosniff, frame protection), and gzip compression.
+| **CI/CD Server** | EC2 `c7i-flex.large` | Jenkins + Docker engine + AWS CLI |
+| **App Compute** | ASG `t3.micro` × 1–3 | Docker container + Nginx reverse proxy per instance |
+| **Load Balancing** | Application LB | Routes port 80 across AZs, health checks on `/check` |
+| **Container Registry** | ECR | 5-image lifecycle policy, SHA-tagged immutable builds |
+| **Config Store** | SSM Parameter Store | `/myapp/deploy/image-tag` — the deployment source of truth |
+| **Monitoring** | Lambda + EventBridge | Pings ALB every 5 min, alerts via SNS on failure |
+| **Observability** | CloudWatch Agent | Streams Nginx access/error logs + CPU/memory metrics |
+| **IaC** | Terraform | VPC, subnets, IGW, SGs, IAM roles, ALB, ASG, ECR, Lambda, SNS, CloudWatch |
 
 ---
 
-## 📁 Repository Blueprint
+## Security Model
+
+| Boundary | Rule |
+| :--- | :--- |
+| **ALB** | Port 80 open to `0.0.0.0/0` (public traffic) |
+| **Jenkins** | Ports 22 + 8080 restricted to `var.your_ip` only |
+| **App instances** | Port 80 from ALB SG only; SSH from Jenkins SG only |
+| **Docker** | Non-root `appuser` via multi-stage build |
+| **IAM — Jenkins** | ECR push, SSM write, ASG refresh |
+| **IAM — App** | ECR pull, SSM read |
+| **IAM — Lambda** | Invoke self, SNS publish |
+
+---
+
+## Repository Structure
 
 ```
 .
-├── app.js                        # Express app, status API, and system metrics endpoints
-├── package.json                  # Dependencies (Express) and startup commands
-├── Dockerfile                    # Clean multi-stage production build structure
-├── Jenkinsfile                   # Multi-stage Jenkins pipeline config with Groq AI integration
+├── app.js                     # Express API — status dashboard, /check health, /api/status metrics
+├── package.json               # Node.js 18 + Express 4.18
+├── Dockerfile                 # Multi-stage Alpine build, non-root user, built-in healthcheck
+├── Jenkinsfile                # 6-stage pipeline + AI failure analysis + Slack notifications
+├── public/
+│   └── index.html             # Real-time status dashboard UI
 ├── nginx/
-│   └── app.conf                  # Nginx reverse proxy config template
+│   └── app.conf               # Reverse proxy config — gzip, security headers, keepalive
 ├── lambda/
-│   └── uptime-monitor.js         # Serverless health check logic
+│   └── uptime-monitor.js      # EventBridge-triggered health checker → SNS alerts
+├── live/
+│   └── index.html             # Production dashboard snapshot
 └── terraform/
-    ├── main.tf                   # Terraform providers and cloud scope
-    ├── variables.tf              # Input variables (IP configs, instance types, keys)
-    ├── outputs.tf                # ALB DNS, ECR repo URL, Jenkins IP, and SNS topic ARN
-    ├── vpc.tf                    # Networking: VPC, subnets (A/B), routing tables, and IGW
-    ├── security-groups.tf        # Least privilege rules (Ingress restricted to specific IPs)
-    ├── iam.tf / iam_ssm.tf       # EC2 profiles, Lambda roles, and SSM parameter access policies
-    ├── ecr.tf                    # Container registry and image retention specs
-    ├── ec2.tf                    # EC2 setups, storage bounds, and user-data scripts
-    ├── alb.tf / asg.tf           # Load balancing, launch templates, and scaling policies
-    ├── ssm.tf                    # SSM parameters for tag management
-    ├── sns.tf / lambda.tf        # Lambda triggers, event rules, and SNS publishers
-    └── cloudwatch.tf             # Alert log groups and metric monitors
+    ├── main.tf                # AWS provider (eu-north-1)
+    ├── variables.tf           # Input vars: region, IPs, instance types, AMI
+    ├── outputs.tf             # Jenkins IP, ALB DNS, ECR URL, SNS ARN
+    ├── vpc.tf                 # VPC, 2 public subnets (AZ-a, AZ-b), IGW, route tables
+    ├── security-groups.tf     # Least-privilege ingress per resource
+    ├── iam.tf                 # Jenkins + App EC2 instance profiles
+    ├── iam_ssm.tf             # SSM read/write policies
+    ├── ec2.tf                 # Jenkins instance + app userdata (deploy.sh + CloudWatch Agent)
+    ├── ecr.tf                 # Repository + 5-image lifecycle rule
+    ├── asg.tf                 # Launch template, ASG (1–3), scaling policies
+    ├── alb.tf                 # ALB, target group, listener
+    ├── ssm.tf                 # /myapp/deploy/image-tag parameter
+    ├── lambda.tf              # Lambda function + EventBridge schedule (5 min)
+    ├── sns.tf                 # Downtime email alert topic
+    └── cloudwatch.tf          # Log groups (nginx, lambda) + CPU scaling alarms
 ```
 
 ---
 
-## 🔐 Security Model & Traffic Rules
-
-1. **Strict Ingress**:
-   - **ALB**: Open to HTTP Port 80 from the general internet (`0.0.0.0/0`).
-   - **Jenkins**: Open on Ports 22 and 8080 to **your IP only** (`var.your_ip`).
-   - **App Instances**: Restrict Port 80 to inbound from the **ALB security group only**, and Port 22 SSH ingress to the **Jenkins security group only**.
-2. **Execution Context**:
-   - Docker container implements multi-stage builds and runs as a custom non-root user (`appuser`).
-3. **Role Segregation (IAM)**:
-   - Jenkins has permissions to upload to ECR and configure ASG / write SSM.
-   - App instances have permissions to pull from ECR and read tags from SSM.
-   - Lambda is limited to executing basic runs and writing to SNS topics.
-
----
-
-## 🤖 Deep Dive: AI-Driven Failure Analysis
-
-If any step in the Jenkins pipeline fails (such as an npm install failure, syntax error, or failing smoke test), the `post { failure { ... } }` hook triggers the diagnostic agent:
-
-1. **Log Extraction**: It retrieves the last 80 lines of the current Jenkins build console output.
-2. **Context Enrichment**: It constructs a structured JSON request utilizing `jq` to prevent quoting errors.
-3. **LLM Diagnostics**: The payload is sent to Groq APIs utilizing the `llama-3.3-70b-versatile` model.
-4. **Diagnostic Output**: The AI identifies:
-   - **Root Cause**: The exact line/dependency causing the issue.
-   - **Confidence**: Diagnostic certainty score.
-   - **Fix**: Code or dependency modifications.
-   - **Commands**: Terminal commands required to apply the fix.
-5. **Slack Delivery**: It posts a custom Slack block showing the exact details and instructions.
-
----
-
-## 🚀 Deployment Guide
+## Deployment Guide
 
 ### Prerequisites
-* AWS account with CLI configured (`aws configure`).
-* Terraform installed locally.
-* Git + Node.js installed locally.
 
-### 1. Clone & Prepare
+- AWS account with CLI configured (`aws configure`)
+- Terraform ≥ 1.0 installed
+- An EC2 key pair created in `eu-north-1`
+- A Slack incoming webhook URL *(for notifications)*
+- A Groq API key *(for AI failure analysis)*
+
+### 1 — Clone
+
 ```bash
-git clone https://github.com/your-username/CI-CD.git
+git clone https://github.com/Sambhav-gg/CI-CD.git
 cd CI-CD
 ```
 
-### 2. Configure Variables
-Navigate to the `terraform/` directory, copy the example variables file, and update it with your settings:
+### 2 — Configure Terraform Variables
+
 ```bash
 cd terraform
-# Create your tfvars configuration
+
 cat > terraform.tfvars <<EOF
-alert_email   = "your-alert-email@gmail.com"
-key_pair_name = "your-aws-ssh-key-name"
-your_ip       = "198.51.100.45/32"  # Update with your public IPv4 CIDR
+alert_email   = "you@example.com"
+key_pair_name = "your-ec2-keypair"
+your_ip       = "203.0.113.42/32"   # Your public IP (whatismyip.com)
 EOF
 ```
 
-### 3. Provision Infrastructure
-Initialize and apply the Terraform plan to deploy AWS infrastructure:
+### 3 — Provision AWS Infrastructure
+
 ```bash
 terraform init
-terraform plan
+terraform plan        # Review what will be created
 terraform apply -auto-approve
 ```
-This process takes about 5 minutes. Take note of the printed output variables:
-* `jenkins_public_ip`
-* `alb_dns`
-* `ecr_repository_url`
-* `sns_topic_arn`
+
+Takes ~5 minutes. Note the outputs:
+
+| Output | Used In |
+| :--- | :--- |
+| `jenkins_public_ip` | Browser + SSH |
+| `alb_dns` | Jenkinsfile `ALB_DNS` env var |
+| `ecr_repository_url` | Jenkinsfile `ECR_REGISTRY` env var |
+| `sns_topic_arn` | Lambda environment |
 
 > [!IMPORTANT]
-> **SNS Confirmation Required**: Check your inbox for the email configured in `alert_email` and click the "Confirm Subscription" link to enable downtime email notifications.
+> **SNS Confirmation**: Check your inbox and click "Confirm Subscription" to enable downtime email alerts.
 
-### 4. Setup Jenkins Server
-1. Navigate to `http://<jenkins_public_ip>:8080` in your web browser.
-2. Retrieve the initial admin password:
+### 4 — Set Up Jenkins
+
+1. Open `http://<jenkins_public_ip>:8080`
+2. Get the initial password:
    ```bash
-   ssh -i /path/to/key.pem ubuntu@<jenkins_public_ip> "sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
+   ssh -i key.pem ubuntu@<jenkins_public_ip> \
+     "sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
    ```
-3. Install default plugins + recommended extensions:
-   * **Git**
-   * **SSH Agent**
-   * **Pipeline**
-   * **Docker Pipeline**
-4. Configure Credentials in the Jenkins Dashboard:
-   * `ec2-ssh-key`: Create an **SSH Username with private key** credential type. Set username to `ubuntu` and paste your private key (`.pem`) contents.
-   * `slack-webhook-url`: Create a **Secret text** credential type and paste your Slack incoming webhook URL.
-   * `llm-api-key`: Create a **Secret text** credential type and paste your Groq API key.
+3. Install plugins: **Git**, **SSH Agent**, **Pipeline**, **Docker Pipeline**
+4. Add credentials:
 
-### 5. Hook GitHub Repository
-Configure webhook in GitHub:
-* Go to repository **Settings** ──► **Webhooks** ──► **Add webhook**.
-* Set **Payload URL** to `http://<jenkins_public_ip>:8080/github-webhook/`.
-* Set **Content type** to `application/json`.
-* Select **Just the push event** and save.
+   | ID | Type | Value |
+   | :--- | :--- | :--- |
+   | `ec2-ssh-key` | SSH Username + Private Key | Username: `ubuntu`, paste `.pem` contents |
+   | `slack-webhook-url` | Secret text | Slack incoming webhook URL |
+   | `llm-api-key` | Secret text | Groq API key |
 
-### 6. Run Your First Pipeline
-Pushes to your repository will trigger builds automatically. You can also trigger a manual build inside the Jenkins dashboard.
+5. Create a **Pipeline** job pointing at your repository.
 
----
+### 5 — Connect GitHub Webhook
 
-## 🔁 Rolling Updates & Rollback
+**Repository Settings → Webhooks → Add webhook**
 
-### Zero-Downtime Deployment
-Deployments do not overwrite code directly. Instead, when a build succeeds:
-1. Jenkins updates the target ECR image tag in SSM (`/myapp/deploy/image-tag`).
-2. Jenkins requests an **Instance Refresh** on the Auto Scaling Group.
-3. The Auto Scaling Group launches new EC2 instances (running the userdata script that checks out the SSM tag, logs into ECR, pulls the container, and starts Nginx proxy).
-4. Old instances are terminated once new instances pass the Application Load Balancer health checks.
+| Field | Value |
+| :--- | :--- |
+| Payload URL | `http://<jenkins_public_ip>:8080/github-webhook/` |
+| Content type | `application/json` |
+| Events | Just the push event |
 
-### Rolling Back Builds
-If a post-deploy health check fails, the Jenkinsfile immediately issues a cancellation:
+### 6 — Push and Watch
+
 ```bash
-aws autoscaling cancel-instance-refresh --auto-scaling-group-name my-app-asg --region eu-north-1
+git add . && git commit -m "initial deploy" && git push
 ```
-To roll back manually to any previous commit:
-1. Locate the previous successful build inside Jenkins.
-2. Re-run that build pipeline. The image tag corresponding to that Git commit SHA will be updated in SSM, and the ASG Instance Refresh will roll back the instances to that version.
+
+Jenkins will automatically build, test, containerize, deploy, and verify.
 
 ---
 
-## 📊 Express Application Endpoints
-The backend Express app serves the following endpoints:
+## Zero-Downtime Deploys & Rollback
 
-| Endpoint | Method | Response |
-| :--- | :--- | :--- |
-| `/` | GET | Returns a real-time status dashboard UI. |
-| `/check` | GET | Returns `{"status":"ok", "timestamp":"..."}` for internal smoke tests and ALB health checks. |
-| `/api/status` | GET | Returns services statuses, system usage metrics (uptime, memory, CPUs), and region details. |
+### How Deployments Work
+
+1. Jenkins writes the new image tag (commit SHA) to **SSM** (`/myapp/deploy/image-tag`)
+2. Jenkins triggers an **ASG Instance Refresh** (`MinHealthyPercentage: 50%`, `InstanceWarmup: 120s`)
+3. ASG launches new instances → userdata pulls the tag from SSM → logs into ECR → starts container
+4. ALB health checks pass → old instances terminate
+
+**No code is overwritten in place.** Every deploy is a fresh instance with a known-good image.
+
+### Rollback
+
+**Automatic**: If the `Verify` stage fails, Jenkins cancels the Instance Refresh immediately.
+
+**Manual**: Re-run a previous successful Jenkins build. It re-writes the old commit SHA to SSM and triggers a fresh Instance Refresh.
 
 ---
 
-## 👨‍💻 Infrastructure Author
+## API Endpoints
 
-**Sambhav Garg**  
-B.Tech CSE — Bennett University  
+| Endpoint | Description |
+| :--- | :--- |
+| `GET /` | Real-time status dashboard UI |
+| `GET /check` | Health check — `{"status":"ok","timestamp":"..."}` — used by ALB + Lambda |
+| `GET /api/status` | Service statuses, system metrics (uptime, memory, CPU), and deployment metadata |
+
+---
+
+## Key Engineering Decisions
+
+| Decision | Rationale |
+| :--- | :--- |
+| **SSM for deployment tags** (not env vars or AMI baking) | Decouples "what to deploy" from "how to deploy" — enables instant rollback by changing one parameter |
+| **Instance Refresh** (not CodeDeploy) | No extra agent required; native ASG feature; simpler IAM |
+| **`jq` for AI payloads** (not string interpolation) | Build logs contain quotes, newlines, and special characters that break shell escaping |
+| **Commit SHA tags** (not `latest` only) | Every image is immutable and traceable; `latest` is also pushed for convenience |
+| **7-day CloudWatch log retention** | Keeps costs near-zero while providing enough history for debugging |
+| **ELB health checks** (not EC2) | Validates the app actually responds, not just that the instance is running |
+| **CloudWatch CPU alarms for scaling** | Scale out at >70% for 2 min, scale in at <30% for 5 min — asymmetric to prevent flapping |
+
+---
+
+## Author
+
+**Sambhav Garg**
+B.Tech CSE — Bennett University
+
 [GitHub](https://github.com/Sambhav-gg) · [LinkedIn](https://linkedin.com/in/sambhav-garg-255bb120b)
